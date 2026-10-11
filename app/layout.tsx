@@ -7,8 +7,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'NEON_EDGE // 霓虹邊緣',
-  description: 'A cyberpunk text-based battle game',
+  title: 'NEON_NIGHT_MARKET // 霓虹夜市',
+  description: '賽博龐克餐廳城市經營遊戲',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -35,7 +35,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
+    <html lang="zh-Hant" className="bg-background">
       <body className="font-mono antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
