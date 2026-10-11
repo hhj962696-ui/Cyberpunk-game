@@ -1,134 +1,78 @@
-"use client"
+import { Coins, Star, CalendarDays, Package } from "lucide-react"
+import { GAME_RULES, INGREDIENTS, INGREDIENT_IDS, RARITY_LABEL } from "@/lib/game/data"
+import type { GameState } from "@/lib/game/engine"
+import { IngredientIcon } from "./food-icon"
 
-import { Activity, Zap, Shield, Brain, Heart, Cpu } from "lucide-react"
-
-interface StatBarProps {
-  label: string
-  value: number
-  max: number
-  color: "green" | "purple" | "red"
-  icon: React.ReactNode
-}
-
-function StatBar({ label, value, max, color, icon }: StatBarProps) {
-  const percentage = (value / max) * 100
-  const colorClasses = {
-    green: "bg-neon-green shadow-[0_0_10px_var(--neon-green)]",
-    purple: "bg-neon-purple shadow-[0_0_10px_var(--neon-purple)]",
-    red: "bg-destructive shadow-[0_0_10px_var(--destructive)]",
-  }
-  const textColorClasses = {
-    green: "text-neon-green",
-    purple: "text-neon-purple",
-    red: "text-destructive",
-  }
-
+export function StatsPanel({ state }: { state: GameState }) {
+  const goal = Math.min(100, Math.round((state.credits / GAME_RULES.goalCredits) * 100))
   return (
-    <div className="mb-4">
-      <div className="flex items-center justify-between mb-1">
-        <div className={`flex items-center gap-2 ${textColorClasses[color]}`}>
-          {icon}
-          <span className="text-xs uppercase tracking-wider">{label}</span>
-        </div>
-        <span className={`text-xs ${textColorClasses[color]}`}>
-          {value}/{max}
-        </span>
-      </div>
-      <div className="h-2 bg-muted rounded-sm overflow-hidden border border-border">
-        <div
-          className={`h-full transition-all duration-500 ${colorClasses[color]}`}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-    </div>
-  )
-}
-
-interface AttributeProps {
-  label: string
-  value: number
-  icon: React.ReactNode
-}
-
-function Attribute({ label, value, icon }: AttributeProps) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-border/50">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        {icon}
-        <span className="text-xs uppercase tracking-wider">{label}</span>
-      </div>
-      <span className="text-neon-green font-bold">{value}</span>
-    </div>
-  )
-}
-
-export function StatsPanel() {
-  return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
+    <div className="h-full flex flex-col overflow-y-auto">
       <div className="border-b border-border p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-2 h-2 rounded-full bg-neon-green animate-pulse" />
-          <span className="text-neon-green text-xs uppercase tracking-widest">
-            SYSTEM_ONLINE
-          </span>
-        </div>
-        <h2 className="text-xl font-bold text-foreground tracking-tight">
-          V3X_RUNNER
-        </h2>
-        <p className="text-xs text-muted-foreground">CLASS: NETRUNNER // LV.12</p>
+        <div className="text-xs text-neon-green uppercase tracking-widest mb-1">FOOD_TRUCK // 下城巷弄</div>
+        <h2 className="text-sm uppercase tracking-widest text-foreground">餐車狀態</h2>
       </div>
 
-      {/* Status Bars */}
-      <div className="p-4 border-b border-border">
-        <div className="text-xs text-muted-foreground uppercase tracking-widest mb-3">
-          // STATUS
+      <div className="p-4 space-y-3 border-b border-border">
+        <Stat icon={<Coins className="w-4 h-4" />} label="信用點" value={state.credits} color="text-neon-gold" />
+        <Stat icon={<Star className="w-4 h-4" />} label="聲望" value={state.reputation} color="text-neon-purple" />
+        <Stat
+          icon={<CalendarDays className="w-4 h-4" />}
+          label="天數"
+          value={`${state.day} / ${GAME_RULES.lastDay}`}
+          color="text-neon-green"
+        />
+        <div>
+          <div className="flex justify-between text-xs text-muted-foreground mb-1">
+            <span>升級小店目標</span>
+            <span className="font-mono">
+              {state.credits} / {GAME_RULES.goalCredits}
+            </span>
+          </div>
+          <div className="h-2 bg-muted rounded-sm overflow-hidden">
+            <div
+              className="h-full bg-neon-gold shadow-[0_0_8px_var(--neon-gold)] transition-all"
+              style={{ width: `${goal}%` }}
+            />
+          </div>
         </div>
-        <StatBar
-          label="HP"
-          value={78}
-          max={100}
-          color="red"
-          icon={<Heart className="w-3 h-3" />}
-        />
-        <StatBar
-          label="SHIELD"
-          value={45}
-          max={60}
-          color="purple"
-          icon={<Shield className="w-3 h-3" />}
-        />
-        <StatBar
-          label="ENERGY"
-          value={120}
-          max={150}
-          color="green"
-          icon={<Zap className="w-3 h-3" />}
-        />
       </div>
 
-      {/* Attributes */}
       <div className="p-4 flex-1">
-        <div className="text-xs text-muted-foreground uppercase tracking-widest mb-3">
-          // ATTRIBUTES
+        <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-widest mb-3">
+          <Package className="w-3 h-3" /> // 食材庫存
         </div>
-        <Attribute label="STRENGTH" value={14} icon={<Activity className="w-3 h-3" />} />
-        <Attribute label="AGILITY" value={18} icon={<Zap className="w-3 h-3" />} />
-        <Attribute label="TECH" value={22} icon={<Cpu className="w-3 h-3" />} />
-        <Attribute label="INTEL" value={19} icon={<Brain className="w-3 h-3" />} />
+        <ul className="grid grid-cols-2 gap-2">
+          {INGREDIENT_IDS.map((id) => {
+            const count = state.inventory[id]
+            return (
+              <li
+                key={id}
+                className={`flex items-center gap-2 p-2 rounded-sm border border-border bg-cyber-dark ${count === 0 ? "opacity-40" : ""}`}
+              >
+                <IngredientIcon id={id} size={24} />
+                <div className="min-w-0">
+                  <div className="text-xs text-foreground truncate">{INGREDIENTS[id].name}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {RARITY_LABEL[INGREDIENTS[id].rarity]} · <span className="font-mono text-foreground">×{count}</span>
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
       </div>
+    </div>
+  )
+}
 
-      {/* Footer Status */}
-      <div className="p-4 border-t border-border bg-cyber-dark">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">CREDITS</span>
-          <span className="text-neon-green font-mono">¥ 12,450</span>
-        </div>
-        <div className="flex items-center justify-between text-xs mt-2">
-          <span className="text-muted-foreground">LOCATION</span>
-          <span className="text-neon-purple font-mono">SECTOR_7G</span>
-        </div>
+function Stat({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: React.ReactNode; color: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className={color}>{icon}</span>
+        {label}
       </div>
+      <span className={`font-mono text-lg ${color}`}>{value}</span>
     </div>
   )
 }
