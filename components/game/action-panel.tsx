@@ -55,7 +55,7 @@ export function ActionPanel({ state, onDraw, onOpen, onNextDay, onReset }: Props
     <div className="h-full flex flex-col">
       <div className="border-b border-border p-4">
         <div className="text-xs text-neon-purple uppercase tracking-widest mb-1">
-          {prep ? "PREP_MODE // 備料中" : state.phase === "closed" ? "CLOSED // 已打烊" : "GAME_OVER"}
+          {prep ? "PREP_MODE // 備料中" : state.phase === "serving" ? "OPEN // 營業中" : state.phase === "closed" ? "CLOSED // 已打烊" : "GAME_OVER"}
         </div>
         <h2 className="text-sm uppercase tracking-widest text-foreground">經營指令</h2>
       </div>

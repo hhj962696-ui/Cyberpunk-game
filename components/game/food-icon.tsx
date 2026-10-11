@@ -141,10 +141,24 @@ const DISH_PATHS: Record<DishId, React.ReactNode> = {
   ),
 }
 
-export function DishIcon({ id, size = 32, dim = false }: { id: DishId; size?: number; dim?: boolean }) {
+export function DishIcon({
+  id,
+  size = 32,
+  dim = false,
+  x,
+  y,
+}: {
+  id: DishId
+  size?: number
+  dim?: boolean
+  x?: number
+  y?: number
+}) {
   const color = dim ? "var(--muted-foreground)" : "var(--neon-purple)"
   return (
     <svg
+      x={x}
+      y={y}
       width={size}
       height={size}
       viewBox="0 0 32 32"

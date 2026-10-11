@@ -1,26 +1,35 @@
 "use client"
 
-import { useState } from "react"
-import { ScrollText, Store, UtensilsCrossed } from "lucide-react"
+import { useEffect, useState } from "react"
+import { ScrollText, Store, Utensils, UtensilsCrossed } from "lucide-react"
 import { StatsPanel } from "@/components/game/stats-panel"
 import { NightLog } from "@/components/game/night-log"
 import { MenuBoard } from "@/components/game/menu-board"
 import { VendorStall } from "@/components/game/vendor-stall"
 import { ActionPanel } from "@/components/game/action-panel"
+import { NightShift } from "@/components/game/night-shift"
+import { DrawReveal } from "@/components/game/draw-reveal"
 import { useGame } from "@/hooks/use-game"
-import { buyFromVendor, draw, nextDay, openBusiness, resolveEvent, toggleMenu } from "@/lib/game/engine"
+import { buyFromVendor, draw, nextDay, resolveEvent, startShift, toggleMenu } from "@/lib/game/engine"
 
-type Tab = "log" | "menu" | "vendor"
+type Tab = "floor" | "menu" | "vendor" | "log"
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: "log", label: "營業日誌", icon: <ScrollText className="w-4 h-4" /> },
+  { id: "floor", label: "餐廳", icon: <Utensils className="w-4 h-4" /> },
   { id: "menu", label: "菜單", icon: <UtensilsCrossed className="w-4 h-4" /> },
   { id: "vendor", label: "攤販", icon: <Store className="w-4 h-4" /> },
+  { id: "log", label: "日誌", icon: <ScrollText className="w-4 h-4" /> },
 ]
 
 export default function GamePage() {
   const { state, now, act, reset } = useGame()
-  const [tab, setTab] = useState<Tab>("log")
+  const [tab, setTab] = useState<Tab>("floor")
+  const eventId = state?.pendingEvent?.id
+
+  // Events are answered in the log
+  useEffect(() => {
+    if (eventId) setTab("log")
+  }, [eventId])
 
   if (!state) {
     return (
@@ -84,6 +93,10 @@ export default function GamePage() {
             ))}
           </nav>
           <div className="flex-1 min-h-0">
+            {/* the restaurant stays mounted so a running shift keeps going while you look at other tabs */}
+            <div className={tab === "floor" ? "h-full" : "hidden"}>
+              <NightShift state={state} act={act} />
+            </div>
             {tab === "log" && <NightLog state={state} onChoose={(c) => act((s) => resolveEvent(s, c, Math.random))} />}
             {tab === "menu" && <MenuBoard state={state} onToggle={(id) => act((s) => toggleMenu(s, id))} />}
             {tab === "vendor" && <VendorStall state={state} now={now} onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))} />}
@@ -95,18 +108,19 @@ export default function GamePage() {
             state={state}
             onDraw={() => act((s) => draw(s, Math.random))}
             onOpen={() => {
-              act((s) => openBusiness(s, Math.random))
-              setTab("log")
+              act(startShift)
+              setTab("floor")
             }}
             onNextDay={() => act(nextDay)}
             onReset={() => {
               reset()
-              setTab("log")
+              setTab("floor")
             }}
           />
         </aside>
       </div>
 
+      <DrawReveal draw={state.lastDraw} />
       <div className="fixed bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-neon-green/30 to-transparent pointer-events-none" />
       <div className="fixed top-0 left-0 w-16 h-16 border-l-2 border-t-2 border-neon-green/30 pointer-events-none" />
       <div className="fixed top-0 right-0 w-16 h-16 border-r-2 border-t-2 border-neon-purple/30 pointer-events-none" />

@@ -8,6 +8,7 @@ import {
   INGREDIENTS,
   INGREDIENT_IDS,
   VENDOR_BASE_PRICE,
+  type CustomerType,
   type DishId,
   type IngredientId,
   type Rarity,
@@ -30,7 +31,7 @@ export interface PendingEvent {
   id: EventId
 }
 
-export type Phase = "prep" | "closed" | "gameover"
+export type Phase = "prep" | "serving" | "closed" | "gameover"
 
 export interface GameState {
   version: 1
@@ -47,6 +48,13 @@ export interface GameState {
   log: LogEntry[]
   nextLogId: number
   won: boolean | null
+  lastDraw: { id: IngredientId; amount: number; seq: number } | null
+  tables: Tile[]
+}
+
+export interface Tile {
+  x: number
+  y: number
 }
 
 export type Rng = () => number
@@ -80,6 +88,8 @@ export function newGame(now: number): GameState {
     log: [],
     nextLogId: 1,
     won: null,
+    lastDraw: null,
+    tables: DEFAULT_TABLES,
   }
   return addLog(
     state,
@@ -153,7 +163,11 @@ export function draw(state: GameState, rng: Rng): GameState {
   const id = drawIngredient(rng)
   const ing = INGREDIENTS[id]
   const amount = DRAW_PACK_SIZE[ing.rarity]
-  next = { ...next, inventory: { ...next.inventory, [id]: next.inventory[id] + amount } }
+  next = {
+    ...next,
+    inventory: { ...next.inventory, [id]: next.inventory[id] + amount },
+    lastDraw: { id, amount, seq: (next.lastDraw?.seq ?? 0) + 1 },
+  }
   const tag = ing.rarity === "legendary" ? "★傳說★ " : ing.rarity === "rare" ? "稀有 " : ""
   return addLog(next, "draw", `抽到 ${tag}[${ing.name}] ×${amount}`)
 }
@@ -233,9 +247,54 @@ export function toggleMenu(state: GameState, dishId: DishId): GameState {
   return { ...state, menu: [...state.menu, dishId] }
 }
 
-// ---------- business night ----------
+// ---------- restaurant layout ----------
 
-function pickCustomer(rng: Rng) {
+// The floor is ROOM_SIZE x ROOM_SIZE tiles. Each table has a chair north and south of it.
+export const ROOM_SIZE = 8
+export const DOOR: Tile = { x: 0, y: 6 }
+export const KITCHEN_TILES: Tile[] = [
+  { x: 5, y: 0 },
+  { x: 6, y: 0 },
+  { x: 7, y: 0 },
+  { x: 6, y: 1 },
+]
+export const DEFAULT_TABLES: Tile[] = [
+  { x: 2, y: 2 },
+  { x: 4, y: 2 },
+  { x: 2, y: 5 },
+  { x: 5, y: 5 },
+]
+
+export function chairsOf(table: Tile): Tile[] {
+  return [
+    { x: table.x, y: table.y - 1 },
+    { x: table.x, y: table.y + 1 },
+  ]
+}
+
+export function seatsOf(tables: Tile[]): Tile[] {
+  return tables.flatMap(chairsOf)
+}
+
+const sameTile = (a: Tile, b: Tile) => a.x === b.x && a.y === b.y
+
+export function canPlaceTable(tables: Tile[], index: number, to: Tile): boolean {
+  const footprint = [to, ...chairsOf(to)]
+  const others = tables.filter((_, i) => i !== index).flatMap((t) => [t, ...chairsOf(t)])
+  const blocked = [...KITCHEN_TILES, DOOR, ...others]
+  return footprint.every(
+    (t) => t.x >= 0 && t.y >= 0 && t.x < ROOM_SIZE && t.y < ROOM_SIZE && !blocked.some((b) => sameTile(b, t)),
+  )
+}
+
+export function moveTable(state: GameState, index: number, to: Tile): GameState {
+  if (state.phase === "serving" || !canPlaceTable(state.tables, index, to)) return state
+  return { ...state, tables: state.tables.map((t, i) => (i === index ? to : t)) }
+}
+
+// ---------- business night (played live) ----------
+
+export function pickCustomer(rng: Rng): CustomerType {
   const total = CUSTOMERS.reduce((sum, c) => sum + c.weight, 0)
   let roll = rng() * total
   for (const c of CUSTOMERS) {
@@ -245,49 +304,73 @@ function pickCustomer(rng: Rng) {
   return CUSTOMERS[0]
 }
 
-export function customerCount(reputation: number, rng: Rng): number {
-  return 5 + Math.floor(Math.max(0, reputation) / 4) + Math.floor(rng() * 4)
+// Customers order a favorite from the menu when they can, otherwise anything on it.
+// They don't know what's in the kitchen, so the player has to have the ingredients.
+export function chooseOrder(customer: CustomerType, menu: DishId[], rng: Rng): { dish: DishId; favorite: boolean } | null {
+  if (menu.length === 0) return null
+  const favorites = customer.favorites.filter((d) => menu.includes(d))
+  if (favorites.length > 0) return { dish: pick(favorites, rng), favorite: true }
+  return { dish: pick(menu, rng), favorite: false }
 }
 
-export function openBusiness(state: GameState, rng: Rng): GameState {
-  if (state.phase !== "prep") return state
-  let next = addLog(state, "system", `>> 第 ${state.day} 天晚上，開始營業。`)
-  const guests = customerCount(state.reputation, rng)
-  let income = 0
-  let served = 0
-  let lost = 0
-  for (let i = 0; i < guests; i++) {
-    const customer = pickCustomer(rng)
-    const available = next.menu.filter((d) => craftableCount(next.inventory, d) > 0)
-    const favorite = customer.favorites.find((d) => available.includes(d))
-    const dish = favorite ?? (available.length > 0 ? pick(available, rng) : null)
-    if (!dish) {
-      lost++
-      next = { ...next, reputation: next.reputation - 1 }
-      next = addLog(next, "miss", `${customer.name} 看了看菜單，沒有能點的菜，失望離開。聲望 -1`)
-      continue
-    }
-    const tip = favorite ? Math.round(DISHES[dish].price * customer.tipRate) : 0
-    const rep = favorite ? 2 : 1
-    income += DISHES[dish].price + tip
-    served++
-    next = {
-      ...next,
-      inventory: consume(next.inventory, dish),
-      credits: next.credits + DISHES[dish].price + tip,
-      reputation: next.reputation + rep,
-    }
-    next = addLog(
-      next,
-      "sale",
-      favorite
-        ? `${customer.name} 點了最愛的 [${DISHES[dish].name}]！+${DISHES[dish].price} 小費 +${tip}`
-        : `${customer.name} 勉強點了 [${DISHES[dish].name}]。+${DISHES[dish].price}`,
-    )
-  }
-  next = addLog(next, "result", `打烊結算：來客 ${guests}，服務 ${served}，流失 ${lost}，收入 ${income} 信用點。`)
-  next = { ...next, phase: "closed" }
+export function shiftCustomerCount(reputation: number, rng: Rng): number {
+  return 6 + Math.floor(Math.max(0, reputation) / 4) + Math.floor(rng() * 3)
+}
 
+export function startShift(state: GameState): GameState {
+  if (state.phase !== "prep" || state.menu.length === 0) return state
+  return addLog({ ...state, phase: "serving" }, "system", `>> 第 ${state.day} 天晚上，開始營業。`)
+}
+
+export function cookDish(state: GameState, dishId: DishId): GameState {
+  if (state.phase !== "serving" || craftableCount(state.inventory, dishId) === 0) return state
+  return { ...state, inventory: consume(state.inventory, dishId) }
+}
+
+// patience: share of the customer's patience left when served (0..1)
+export function tipFor(customer: CustomerType, dishId: DishId, favorite: boolean, patience: number): number {
+  return Math.round(DISHES[dishId].price * customer.tipRate * (favorite ? 1 : 0.5) * (0.5 + patience))
+}
+
+export function serveCustomer(
+  state: GameState,
+  customer: CustomerType,
+  dishId: DishId,
+  favorite: boolean,
+  patience: number,
+): GameState {
+  const price = DISHES[dishId].price
+  const tip = tipFor(customer, dishId, favorite, patience)
+  const rep = favorite ? 2 : 1
+  let next: GameState = { ...state, credits: state.credits + price + tip, reputation: state.reputation + rep }
+  next = addLog(
+    next,
+    "sale",
+    `${customer.name} 吃到 [${DISHES[dishId].name}]${favorite ? "，是最愛！" : "。"} +${price} 小費 +${tip}`,
+  )
+  return next
+}
+
+export function customerWalkout(state: GameState, customer: CustomerType): GameState {
+  return addLog({ ...state, reputation: state.reputation - 1 }, "miss", `${customer.name} 等太久，氣沖沖地走了。聲望 -1`)
+}
+
+export interface ShiftSummary {
+  guests: number
+  served: number
+  lost: number
+  income: number
+  wasted: number
+}
+
+export function endShift(state: GameState, summary: ShiftSummary, rng: Rng): GameState {
+  if (state.phase !== "serving") return state
+  let next = addLog(
+    { ...state, phase: "closed" },
+    "result",
+    `打烊結算：來客 ${summary.guests}，服務 ${summary.served}，流失 ${summary.lost}，收入 ${summary.income} 信用點。` +
+      (summary.wasted > 0 ? `浪費了 ${summary.wasted} 份沒送出的菜。` : ""),
+  )
   if (rng() < 0.4) {
     const id = pick<EventId>(["gang", "critic", "hack"], rng)
     next = { ...next, pendingEvent: { id } }
@@ -402,9 +485,14 @@ export const SAVE_KEY = "neon-night-market-save"
 export function loadGame(raw: string | null, now: number): GameState {
   if (!raw) return newGame(now)
   try {
-    const parsed = JSON.parse(raw) as GameState
+    const parsed = JSON.parse(raw) as Partial<GameState> & Pick<GameState, "version">
     if (parsed.version !== 1) return newGame(now)
-    return syncVendor({ ...parsed, inventory: { ...emptyInventory(), ...parsed.inventory } }, now)
+    let state = { lastDraw: null, tables: DEFAULT_TABLES, ...parsed, inventory: { ...emptyInventory(), ...parsed.inventory } } as GameState
+    // The page was closed mid-shift: the night is over
+    if (state.phase === "serving") {
+      state = addLog({ ...state, phase: "closed" }, "system", "營業中途離開，今晚提早打烊了。")
+    }
+    return syncVendor(state, now)
   } catch {
     return newGame(now)
   }
