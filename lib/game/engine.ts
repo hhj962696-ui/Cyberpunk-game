@@ -56,6 +56,8 @@ export interface GameState {
   sales: Partial<Record<CountryId, number>>
   // every ingredient the player has ever had, for the catalog
   discovered: IngredientId[]
+  // ingredient packs claimed by watching an ad today
+  adClaims: number
   // index into STORE_LEVELS
   level: number
   phase: Phase
@@ -104,17 +106,19 @@ export function rentDue(state: Pick<GameState, "day" | "level">): { amount: numb
 
 export function newGame(now: number, best: RunRecord = { days: 0, level: 0 }): GameState {
   const inventory = emptyInventory()
-  inventory.noodle = 4
-  inventory.synmeat = 2
-  inventory.scallion = 2
-  inventory.energy = 1
-  inventory.soda = 1
+  // enough for every guest on day 1 (at most 8) before drawing: 5 ramen and 4 drinks
+  inventory.noodle = 10
+  inventory.synmeat = 5
+  inventory.scallion = 5
+  inventory.energy = 4
+  inventory.soda = 4
   const state: GameState = {
     version: 3,
     day: 1,
     country: "taipei",
     sales: {},
     discovered: INGREDIENT_IDS.filter((id) => inventory[id] > 0),
+    adClaims: 0,
     level: 0,
     phase: "prep",
     credits: GAME_RULES.startCredits,
@@ -196,6 +200,27 @@ export function drawIngredient(rng: Rng, pool: IngredientId[]): IngredientId {
   return pick(matching.length > 0 ? matching : pool, rng)
 }
 
+const EASY: Rarity[] = ["common", "uncommon"]
+
+// Easy ingredients the dishes on the menu use that this country sells
+export function menuStaples(state: Pick<GameState, "menu" | "country">): IngredientId[] {
+  const pool = COUNTRIES[state.country].pool
+  const ids = new Set(state.menu.flatMap((d) => Object.keys(DISHES[d].recipe) as IngredientId[]))
+  return [...ids].filter((id) => pool.includes(id) && EASY.includes(INGREDIENTS[id].rarity))
+}
+
+// Most draws land on something the menu needs, so the night's dishes can be made;
+// the rest are a normal draw and can turn up rare finds.
+function drawForMenu(state: GameState, rng: Rng): IngredientId {
+  const needed = menuStaples(state)
+  if (needed.length > 0 && rng() < GAME_RULES.menuDrawChance) {
+    // what we're shortest on comes first
+    const short = needed.filter((id) => state.menu.some((d) => missingFor(state.inventory, d).some((m) => m.id === id)))
+    return pick(short.length > 0 ? short : needed, rng)
+  }
+  return drawIngredient(rng, COUNTRIES[state.country].pool)
+}
+
 function discover(state: GameState, id: IngredientId): GameState {
   return state.discovered.includes(id) ? state : { ...state, discovered: [...state.discovered, id] }
 }
@@ -210,7 +235,7 @@ export function draw(state: GameState, rng: Rng): GameState {
   } else {
     return addLog(state, "system", "信用點不足，無法加抽。")
   }
-  const id = drawIngredient(rng, COUNTRIES[state.country].pool)
+  const id = drawForMenu(state, rng)
   const ing = INGREDIENTS[id]
   const amount = DRAW_PACK_SIZE[ing.rarity]
   const isNew = !state.discovered.includes(id)
@@ -286,6 +311,39 @@ export function buyFromVendor(state: GameState, offerIndex: number, now: number)
     inventory: { ...next.inventory, [offer.ingredient]: next.inventory[offer.ingredient] + 1 },
   }
   return addLog(next, "draw", `向攤販買了 [${INGREDIENTS[offer.ingredient].name}]，花費 ${offer.price} 信用點`)
+}
+
+// The staple shelf always has the country's 大宗 ingredients
+export function stapleShelf(country: CountryId): IngredientId[] {
+  return COUNTRIES[country].pool.filter((id) => INGREDIENTS[id].rarity === "common")
+}
+
+export function buyStaple(state: GameState, id: IngredientId): GameState {
+  if (state.phase !== "prep" || !stapleShelf(state.country).includes(id)) return state
+  if (state.credits < GAME_RULES.staplePrice) return addLog(state, "system", "信用點不足。")
+  return {
+    ...discover(state, id),
+    credits: state.credits - GAME_RULES.staplePrice,
+    inventory: { ...state.inventory, [id]: state.inventory[id] + 1 },
+  }
+}
+
+// Ingredients a player can get by watching an ad: anything not rarer than 特產 here
+export function adIngredientOptions(state: Pick<GameState, "country">): IngredientId[] {
+  return COUNTRIES[state.country].pool.filter((id) => RARITIES.indexOf(INGREDIENTS[id].rarity) <= RARITIES.indexOf("rare"))
+}
+
+// Called after the player watched a rewarded ad to the end
+export function claimAdIngredient(state: GameState, id: IngredientId): GameState {
+  if (state.phase !== "prep" || state.adClaims >= GAME_RULES.adIngredientsPerDay) return state
+  if (!adIngredientOptions(state).includes(id)) return state
+  const amount = GAME_RULES.adIngredientAmount
+  const next = {
+    ...discover(state, id),
+    adClaims: state.adClaims + 1,
+    inventory: { ...state.inventory, [id]: state.inventory[id] + amount },
+  }
+  return addLog(next, "draw", `看完廣告，領到 [${INGREDIENTS[id].name}] ×${amount}`)
 }
 
 // ---------- menu ----------
@@ -623,7 +681,7 @@ export function nextDay(state: GameState): GameState {
     next = addLog({ ...next, credits: next.credits - rent }, "rent", `繳了第 ${weekOf(state.day)} 週房租 ${rent} 信用點。`)
   }
   const free = storeLevel(next).freeDraws
-  next = withBest({ ...next, day: next.day + 1, phase: "prep", freeDrawsLeft: free })
+  next = withBest({ ...next, day: next.day + 1, phase: "prep", freeDrawsLeft: free, adClaims: 0 })
   const upcoming = rentDue(next)
   return addLog(
     next,
@@ -654,6 +712,7 @@ export function loadGame(raw: string | null, now: number): GameState {
       country: "taipei",
       sales: {},
       discovered: INGREDIENT_IDS.filter((id) => inventory[id] > 0),
+      adClaims: 0,
       ...rest,
       version: 3,
       inventory,

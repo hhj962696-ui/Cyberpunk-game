@@ -17,7 +17,7 @@ import { useGame } from "@/hooks/use-game"
 import { useGameSounds } from "@/hooks/use-game-sounds"
 import { useLeaderboard } from "@/hooks/use-leaderboard"
 import { COUNTRIES } from "@/lib/game/data"
-import { buyFromVendor, draw, nextDay, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
+import { buyFromVendor, buyStaple, claimAdIngredient, draw, nextDay, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
 
 type Tab = "floor" | "menu" | "vendor" | "world" | "codex" | "rank" | "log"
 
@@ -165,7 +165,17 @@ export default function GamePage() {
             </div>
             {tab === "log" && <NightLog state={state} onChoose={(c) => act((s) => resolveEvent(s, c, Math.random))} />}
             {tab === "menu" && <MenuBoard state={state} onToggle={(id) => act((s) => toggleMenu(s, id))} />}
-            {tab === "vendor" && <VendorStall state={state} now={now} onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))} />}
+            {tab === "vendor" && (
+              <VendorStall
+                state={state}
+                now={now}
+                onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))}
+                onBuyStaple={(id) => act((s) => buyStaple(s, id))}
+                // no ad SDK on this branch yet: the reward is granted straight away
+                onWatchAd={async () => true}
+                onAdReward={(id) => act((s) => claimAdIngredient(s, id))}
+              />
+            )}
             {tab === "world" && <WorldMap state={state} onTravel={(c) => act((s) => travel(s, c))} />}
             {tab === "codex" && <Codex state={state} />}
             {tab === "rank" && <Leaderboard state={state} player={player} onRename={rename} />}
