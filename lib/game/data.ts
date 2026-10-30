@@ -18,7 +18,7 @@ export const RARITY_LABEL: Record<Rarity, string> = {
 }
 
 export const RARITY_HINT: Record<Rarity, string> = {
-  common: "到處都抽得到，攤販天天有貨，一次抽到 4 份。",
+  common: "到處都抽得到，商店常常補貨，一次抽到 4 份。",
   uncommon: "天然食材，大部分地區都有，一次抽到 3 份。",
   rare: "地區特產，只有在產地抽得到或買得到，一次 2 份。",
   epic: "抽中機率只有 4%，攤販偶爾進一份，只在產地出現。",
@@ -391,21 +391,34 @@ export const GAME_RULES = {
   startCredits: 200,
   // share of draws that land on something the menu needs (only easy ingredients)
   menuDrawChance: 0.6,
-  // the staple shelf: a country's 大宗 ingredients, always in stock at this price
+  // the staple shelf: some of a country's 大宗 ingredients at this price, in limited
+  // amounts (at least stapleMinKinds kinds, stapleStock[0]..[1] of each) per restock
   staplePrice: 8,
+  stapleMinKinds: 4,
+  stapleStock: [3, 8] as [number, number],
   // ingredient packs a player can get by watching an ad, per day
   adIngredientsPerDay: 3,
   adIngredientAmount: 3,
   extraDrawCost: 30,
   rentEvery: 7,
-  vendorRefreshMs: 12 * 60 * 60 * 1000,
+  adDrawsPerDay: 2,
+  adCoinsPerDay: 3,
+  // the shop restocks with a new random selection this often
+  vendorRefreshMs: 3 * 60 * 1000,
+  // branches (展店): per country, each brings more guests when the stall is there
+  maxBranches: 3,
+  branchBaseCost: 400,
+  branchGuests: 2,
+  // guests per night never exceed seats × this
+  guestsPerSeat: 2,
   vendorOfferCount: 4,
 }
 
 // Rent is due at the end of every GAME_RULES.rentEvery days. It climbs each week
 // and with the size of the place, so the run gets harder until you can't pay.
 export function rentFor(week: number, level: number): number {
-  return 200 + 150 * (week - 1) + 100 * (level - 1)
+  const w = week - 1
+  return 150 + 100 * w + 40 * w * w + 100 * (level - 1)
 }
 
 export interface StoreLevel {
@@ -424,8 +437,8 @@ export interface StoreLevel {
 
 export const STORE_LEVELS: StoreLevel[] = [
   { name: "夜市餐車", cost: 0, tables: 4, burners: 2, freeDraws: 5, menuSize: 4, crowd: 0, cookMs: 2000, perk: "" },
-  { name: "巷口小店", cost: 800, tables: 5, burners: 2, freeDraws: 6, menuSize: 4, crowd: 1, cookMs: 2000, perk: "+1 張桌子、每天 +1 次免費抽、可以去新曼谷和新東京擺攤" },
-  { name: "霓虹食堂", cost: 2000, tables: 5, burners: 3, freeDraws: 6, menuSize: 5, crowd: 2, cookMs: 2000, perk: "+1 個爐台、菜單 +1 道、客人變多、開放新首爾和新紐約" },
-  { name: "天橋餐廳", cost: 4500, tables: 6, burners: 3, freeDraws: 7, menuSize: 5, crowd: 3, cookMs: 1700, perk: "+1 張桌子、每天 +1 次免費抽、出菜更快、開放新巴黎" },
-  { name: "天空花園名店", cost: 9000, tables: 6, burners: 3, freeDraws: 8, menuSize: 6, crowd: 4, cookMs: 1400, perk: "菜單全開、每天 +1 次免費抽、出菜最快" },
+  { name: "巷口小店", cost: 600, tables: 5, burners: 2, freeDraws: 6, menuSize: 4, crowd: 1, cookMs: 2000, perk: "+1 張桌子、每天 +1 次免費抽、可以去新曼谷和新東京擺攤" },
+  { name: "霓虹食堂", cost: 1500, tables: 5, burners: 3, freeDraws: 6, menuSize: 5, crowd: 2, cookMs: 2000, perk: "+1 個爐台、菜單 +1 道、客人變多、開放新首爾和新紐約" },
+  { name: "天橋餐廳", cost: 3200, tables: 6, burners: 3, freeDraws: 7, menuSize: 5, crowd: 3, cookMs: 1700, perk: "+1 張桌子、每天 +1 次免費抽、出菜更快、開放新巴黎" },
+  { name: "天空花園名店", cost: 5000, tables: 6, burners: 3, freeDraws: 8, menuSize: 6, crowd: 4, cookMs: 1400, perk: "菜單全開、每天 +1 次免費抽、出菜最快" },
 ]

@@ -1,14 +1,24 @@
-import { Flame, Lock, MapPin, Plane } from "lucide-react"
-import { COUNTRIES, COUNTRY_IDS, DISHES, INGREDIENTS, RARITIES, STORE_LEVELS, type CountryId } from "@/lib/game/data"
-import { canTravel, hotDish, type GameState } from "@/lib/game/engine"
+import { Building2, Flame, Lock, MapPin, Plane } from "lucide-react"
+import { COUNTRIES, COUNTRY_IDS, DISHES, GAME_RULES, INGREDIENTS, RARITIES, STORE_LEVELS, type CountryId } from "@/lib/game/data"
+import { branchCost, branchesIn, canOpenBranch, canTravel, hotDish, maxGuests, type GameState } from "@/lib/game/engine"
 import { IngredientIcon } from "./food-icon"
 
-export function WorldMap({ state, onTravel }: { state: GameState; onTravel: (id: CountryId) => void }) {
+export function WorldMap({
+  state,
+  onTravel,
+  onOpenBranch,
+}: {
+  state: GameState
+  onTravel: (id: CountryId) => void
+  onOpenBranch: (id: CountryId) => void
+}) {
   return (
     <div className="h-full overflow-y-auto p-4">
       <p className="text-xs text-muted-foreground mb-4">
         白天可以把餐車搬到別的地區，晚上就在那裡開店。每個地區的物價、受歡迎的料理和能抽到的特產都不同，
         庫存會跟著你走，所以可以把外地特產帶回來賣。業績會記在各地區的排行榜上。
+        在一個地區展店，之後在那裡營業時每家分店每晚多 {GAME_RULES.branchGuests} 位客人（每區最多{" "}
+        {GAME_RULES.maxBranches} 家）。客人總數不會超過座位數的 {GAME_RULES.guestsPerSeat} 倍，現在最多 {maxGuests(state)} 位。
       </p>
       <ul className="grid gap-3 md:grid-cols-2">
         {COUNTRY_IDS.map((id) => {
@@ -59,6 +69,23 @@ export function WorldMap({ state, onTravel }: { state: GameState; onTravel: (id:
                   </span>
                 ))}
               </div>
+              {!locked && (
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <Building2 className="w-3 h-3" /> 分店 {branchesIn(state, id)} / {GAME_RULES.maxBranches}
+                    {branchesIn(state, id) > 0 && (
+                      <span className="text-neon-green">（每晚 +{branchesIn(state, id) * GAME_RULES.branchGuests} 客）</span>
+                    )}
+                  </span>
+                  <button
+                    disabled={!canOpenBranch(state, id)}
+                    onClick={() => onOpenBranch(id)}
+                    className="px-2 py-1 rounded-sm border border-neon-green/60 text-neon-green hover:bg-neon-green/15 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {branchCost(state, id) === null ? "已展滿" : `展店 ${branchCost(state, id)}`}
+                  </button>
+                </div>
+              )}
               {!here && (
                 <button
                   disabled={!canTravel(state, id)}

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Clock, PlayCircle } from "lucide-react"
 import { COUNTRIES, GAME_RULES, INGREDIENTS, RARITIES, RARITY_LABEL, type IngredientId } from "@/lib/game/data"
-import { adIngredientOptions, missingFor, stapleShelf, vendorOffers, type GameState } from "@/lib/game/engine"
+import { adIngredientOptions, missingFor, stapleLeft, stapleShelf, vendorOffers, vendorSlotAt, type GameState } from "@/lib/game/engine"
 import { IngredientIcon } from "./food-icon"
 
 function formatCountdown(ms: number) {
@@ -24,7 +24,9 @@ interface Props {
 
 export function VendorStall({ state, now, onBuy, onBuyStaple, onWatchAd, onAdReward }: Props) {
   const offers = vendorOffers(state.vendorSlot, state.country)
-  const refreshAt = (state.vendorSlot + 1) * GAME_RULES.vendorRefreshMs
+  const staples = stapleShelf(state.vendorSlot, state.country)
+  // the clock can tick past the window a moment before the save catches up
+  const refreshAt = (Math.max(state.vendorSlot, vendorSlotAt(now)) + 1) * GAME_RULES.vendorRefreshMs
   const canBuy = state.phase === "prep"
   const [watching, setWatching] = useState(false)
   const short = new Set(state.menu.flatMap((d) => missingFor(state.inventory, d).map((m) => m.id)))
@@ -51,15 +53,23 @@ export function VendorStall({ state, now, onBuy, onBuyStaple, onWatchAd, onAdRew
   return (
     <div className="h-full overflow-y-auto p-4 space-y-6">
       <section>
-        <div className="text-xs text-neon-green uppercase tracking-widest mb-1">// 基本食材（天天有貨）</div>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-xs text-neon-green uppercase tracking-widest">// 食材商店</div>
+          <div className="flex items-center gap-1 text-xs text-neon-cyan font-mono shrink-0" title="下次補貨">
+            <Clock className="w-3 h-3" /> 補貨 {formatCountdown(refreshAt - now)}
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground mb-3">
-          {COUNTRIES[state.country].name}的大宗食材隨時買得到，每份 {GAME_RULES.staplePrice} 信用點。標紅的是菜單上缺的。
+          每 {GAME_RULES.vendorRefreshMs / 60000} 分鐘補一次貨，每次上架的食材和數量都不一樣，賣完就要等下一批。
+          基本食材每份 {GAME_RULES.staplePrice} 信用點，標紅的是菜單上缺的。
         </p>
         <ul className="grid gap-2 grid-cols-2 sm:grid-cols-3">
-          {stapleShelf(state.country).map((id) => (
+          {staples.map(({ ingredient: id, stock }) => {
+            const left = stapleLeft(state, { ingredient: id, stock })
+            return (
             <li key={id}>
               <button
-                disabled={!canBuy || state.credits < GAME_RULES.staplePrice}
+                disabled={!canBuy || left <= 0 || state.credits < GAME_RULES.staplePrice}
                 onClick={() => onBuyStaple(id)}
                 className={`w-full flex items-center gap-2 p-2 rounded-sm border bg-cyber-dark text-left hover:border-neon-green transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                   short.has(id) ? "border-destructive/70" : "border-border"
@@ -73,10 +83,13 @@ export function VendorStall({ state, now, onBuy, onBuyStaple, onWatchAd, onAdRew
                     {short.has(id) && <span className="text-destructive"> · 缺</span>}
                   </div>
                 </div>
-                <span className="font-mono text-xs text-neon-gold">+1</span>
+                <span className={`font-mono text-xs ${left > 0 ? "text-neon-gold" : "text-muted-foreground"}`}>
+                  {left > 0 ? `剩 ${left}` : "售完"}
+                </span>
               </button>
             </li>
-          ))}
+            )
+          })}
         </ul>
       </section>
 
@@ -121,14 +134,10 @@ export function VendorStall({ state, now, onBuy, onBuyStaple, onWatchAd, onAdRew
       </section>
 
       <section>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-xs text-muted-foreground">
-          {COUNTRIES[state.country].name}的黑市攤販，每 12 小時換一批當地貨，換個地區就有不同的貨。
-        </p>
-        <div className="flex items-center gap-1 text-xs text-neon-cyan font-mono shrink-0">
-          <Clock className="w-3 h-3" /> {formatCountdown(refreshAt - now)}
-        </div>
-      </div>
+      <div className="text-xs text-neon-cyan uppercase tracking-widest mb-1">// 黑市特產</div>
+      <p className="text-xs text-muted-foreground mb-4">
+        {COUNTRIES[state.country].name}的黑市攤販跟著商店一起補貨，換個地區就有不同的貨。
+      </p>
       <ul className="grid gap-3 sm:grid-cols-2">
         {offers.map((offer, i) => {
           const ing = INGREDIENTS[offer.ingredient]

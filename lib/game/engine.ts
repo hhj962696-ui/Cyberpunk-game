@@ -22,6 +22,7 @@ import {
   type Rarity,
   type StoreLevel,
 } from "./data"
+import { adCoinReward, stageFor, stageReward, starsFor, starTargets } from "./stages"
 
 export type Inventory = Record<IngredientId, number>
 
@@ -45,6 +46,8 @@ export type Phase = "prep" | "serving" | "closed" | "gameover"
 export interface RunRecord {
   days: number
   level: number
+  // furthest stage reached
+  stage?: number
 }
 
 export interface GameState {
@@ -66,8 +69,20 @@ export interface GameState {
   inventory: Inventory
   menu: DishId[]
   freeDrawsLeft: number
+  adDrawsLeft: number
+  adCoinsLeft: number
+  // credits taken this week, for the stage stars
+  weekIncome: number
+  // stars earned on each cleared stage (week) this run
+  stageStars: number[]
+  // the last stage bonus, which an ad can double the next day
+  stageBonus: { week: number; credits: number; doubled: boolean } | null
   vendorSlot: number
   vendorBought: number[]
+  // staples bought since the shop last restocked
+  stapleBought: Partial<Record<IngredientId, number>>
+  // branches opened in each country; they bring guests when the stall is there
+  branches: Partial<Record<CountryId, number>>
   pendingEvent: PendingEvent | null
   log: LogEntry[]
   nextLogId: number
@@ -126,8 +141,15 @@ export function newGame(now: number, best: RunRecord = { days: 0, level: 0 }): G
     inventory,
     menu: ["ramen", "battery"],
     freeDrawsLeft: STORE_LEVELS[0].freeDraws,
+    adDrawsLeft: GAME_RULES.adDrawsPerDay,
+    adCoinsLeft: GAME_RULES.adCoinsPerDay,
+    weekIncome: 0,
+    stageStars: [],
+    stageBonus: null,
     vendorSlot: vendorSlotAt(now),
     vendorBought: [],
+    stapleBought: {},
+    branches: {},
     pendingEvent: null,
     log: [],
     nextLogId: 1,
@@ -138,7 +160,8 @@ export function newGame(now: number, best: RunRecord = { days: 0, level: 0 }): G
   return addLog(
     state,
     "system",
-    `>> 第 1 天。你在下城巷弄開了一台餐車。每 ${GAME_RULES.rentEvery} 天要繳一次房租，存錢把餐車升級成名店吧。`,
+    `>> 第 1 天。你在下城巷弄開了一台餐車。每 ${GAME_RULES.rentEvery} 天是一個關卡，撐到週末繳得出房租就過關，賺得越多星星越多。` +
+      `第 1 關「${stageFor(1).name}」：${stageFor(1).intro}`,
   )
 }
 
@@ -227,22 +250,60 @@ function discover(state: GameState, id: IngredientId): GameState {
 
 export function draw(state: GameState, rng: Rng): GameState {
   if (state.phase !== "prep") return state
-  let next = state
   if (state.freeDrawsLeft > 0) {
-    next = { ...next, freeDrawsLeft: next.freeDrawsLeft - 1 }
-  } else if (state.credits >= GAME_RULES.extraDrawCost) {
-    next = { ...next, credits: next.credits - GAME_RULES.extraDrawCost }
-  } else {
-    return addLog(state, "system", "信用點不足，無法加抽。")
+    return drawInto({ ...state, freeDrawsLeft: state.freeDrawsLeft - 1 }, rng)
   }
+  if (state.credits >= GAME_RULES.extraDrawCost) {
+    return drawInto({ ...state, credits: state.credits - GAME_RULES.extraDrawCost }, rng)
+  }
+  return addLog(state, "system", "信用點不足，無法加抽。")
+}
+
+// Reward for watching an ad: one free draw, a few times per day
+export function adDraw(state: GameState, rng: Rng): GameState {
+  if (state.phase !== "prep" || state.adDrawsLeft <= 0) return state
+  return drawInto({ ...state, adDrawsLeft: state.adDrawsLeft - 1 }, rng)
+}
+
+// Reward for watching an ad: some credits, a few times per day. Never sold for real money.
+export function adCoins(state: GameState): GameState {
+  if (state.phase === "serving" || state.phase === "gameover" || state.adCoinsLeft <= 0) return state
+  const amount = adCoinReward(weekOf(state.day), state.level)
+  return addLog(
+    { ...state, credits: state.credits + amount, adCoinsLeft: state.adCoinsLeft - 1 },
+    "system",
+    `看完廣告，拿到 ${amount} 信用點。`,
+  )
+}
+
+// Reward for watching an ad: the last stage bonus is paid a second time
+export function doubleStageBonus(state: GameState): GameState {
+  const bonus = state.stageBonus
+  if (!bonus || bonus.doubled || bonus.credits <= 0 || state.phase === "gameover") return state
+  return addLog(
+    { ...state, credits: state.credits + bonus.credits, stageBonus: { ...bonus, doubled: true } },
+    "upgrade",
+    `看完廣告，第 ${bonus.week} 關獎勵加倍：再拿 ${bonus.credits} 信用點！`,
+  )
+}
+
+export function currentStage(state: Pick<GameState, "day">) {
+  return stageFor(weekOf(state.day))
+}
+
+export function noteAdUnavailable(state: GameState): GameState {
+  return addLog(state, "system", "廣告沒有播完，這次沒有獎勵。")
+}
+
+function drawInto(state: GameState, rng: Rng): GameState {
   const id = drawForMenu(state, rng)
   const ing = INGREDIENTS[id]
   const amount = DRAW_PACK_SIZE[ing.rarity]
   const isNew = !state.discovered.includes(id)
-  next = {
-    ...discover(next, id),
-    inventory: { ...next.inventory, [id]: next.inventory[id] + amount },
-    lastDraw: { id, amount, seq: (next.lastDraw?.seq ?? 0) + 1 },
+  const next: GameState = {
+    ...discover(state, id),
+    inventory: { ...state.inventory, [id]: state.inventory[id] + amount },
+    lastDraw: { id, amount, seq: (state.lastDraw?.seq ?? 0) + 1 },
   }
   const tag = ing.rarity === "legendary" ? "★傳說★ " : ing.rarity === "epic" ? "珍稀 " : ing.rarity === "rare" ? "特產 " : ""
   return addLog(next, "draw", `抽到 ${tag}[${ing.name}] ×${amount}${isNew ? "（圖鑑新登錄！）" : ""}`)
@@ -256,7 +317,7 @@ export interface VendorOffer {
   stock: number
 }
 
-// Small deterministic PRNG so every player sees the same stall for a 12-hour window
+// Small deterministic PRNG so every player sees the same shop until it restocks
 export function seededRng(seed: number): Rng {
   let a = seed >>> 0
   return () => {
@@ -287,11 +348,11 @@ export function vendorOffers(slot: number, country: CountryId): VendorOffer[] {
   return offers
 }
 
-// Reset what was bought once the 12-hour window rolls over
+// Restock: what was bought resets every time the shop's window rolls over
 export function syncVendor(state: GameState, now: number): GameState {
   const slot = vendorSlotAt(now)
   if (slot === state.vendorSlot) return state
-  return { ...state, vendorSlot: slot, vendorBought: [] }
+  return { ...state, vendorSlot: slot, vendorBought: [], stapleBought: {} }
 }
 
 export function buyFromVendor(state: GameState, offerIndex: number, now: number): GameState {
@@ -313,19 +374,94 @@ export function buyFromVendor(state: GameState, offerIndex: number, now: number)
   return addLog(next, "draw", `向攤販買了 [${INGREDIENTS[offer.ingredient].name}]，花費 ${offer.price} 信用點`)
 }
 
-// The staple shelf always has the country's 大宗 ingredients
-export function stapleShelf(country: CountryId): IngredientId[] {
-  return COUNTRIES[country].pool.filter((id) => INGREDIENTS[id].rarity === "common")
+export interface StapleOffer {
+  ingredient: IngredientId
+  stock: number
 }
 
-export function buyStaple(state: GameState, id: IngredientId): GameState {
-  if (state.phase !== "prep" || !stapleShelf(state.country).includes(id)) return state
-  if (state.credits < GAME_RULES.staplePrice) return addLog(state, "system", "信用點不足。")
-  return {
-    ...discover(state, id),
-    credits: state.credits - GAME_RULES.staplePrice,
-    inventory: { ...state.inventory, [id]: state.inventory[id] + 1 },
+// The staple shelf carries some of the country's 大宗 ingredients in limited amounts.
+// Which ones, and how many, change with every restock.
+export function stapleShelf(slot: number, country: CountryId): StapleOffer[] {
+  const rng = seededRng(slot * 4241 + 3 + COUNTRY_IDS.indexOf(country) * 65537)
+  const commons = COUNTRIES[country].pool.filter((id) => INGREDIENTS[id].rarity === "common")
+  const shuffled = [...commons]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
   }
+  const min = Math.min(commons.length, GAME_RULES.stapleMinKinds)
+  const count = min + Math.floor(rng() * (commons.length - min + 1))
+  return shuffled.slice(0, count).map((ingredient) => ({
+    ingredient,
+    stock: GAME_RULES.stapleStock[0] + Math.floor(rng() * (GAME_RULES.stapleStock[1] - GAME_RULES.stapleStock[0] + 1)),
+  }))
+}
+
+export function stapleLeft(state: GameState, offer: StapleOffer): number {
+  return offer.stock - (state.stapleBought[offer.ingredient] ?? 0)
+}
+
+export function buyStaple(state: GameState, id: IngredientId, now: number): GameState {
+  const next = syncVendor(state, now)
+  if (next.phase !== "prep") return next
+  const offer = stapleShelf(next.vendorSlot, next.country).find((o) => o.ingredient === id)
+  if (!offer) return next
+  if (stapleLeft(next, offer) <= 0) return addLog(next, "system", `[${INGREDIENTS[id].name}] 賣完了，等下一批補貨。`)
+  if (next.credits < GAME_RULES.staplePrice) return addLog(next, "system", "信用點不足。")
+  return {
+    ...discover(next, id),
+    credits: next.credits - GAME_RULES.staplePrice,
+    stapleBought: { ...next.stapleBought, [id]: (next.stapleBought[id] ?? 0) + 1 },
+    inventory: { ...next.inventory, [id]: next.inventory[id] + 1 },
+  }
+}
+
+// ---------- branches ----------
+
+export function branchesIn(state: Pick<GameState, "branches">, country: CountryId): number {
+  return state.branches[country] ?? 0
+}
+
+// Each extra branch in a country costs more, and pricier places cost more to open in
+export function branchCost(state: Pick<GameState, "branches">, country: CountryId): number | null {
+  const n = branchesIn(state, country)
+  if (n >= GAME_RULES.maxBranches) return null
+  return Math.round((GAME_RULES.branchBaseCost * (n + 1) * COUNTRIES[country].priceMult) / 10) * 10
+}
+
+export function canOpenBranch(state: GameState, country: CountryId): boolean {
+  const cost = branchCost(state, country)
+  return (
+    cost !== null &&
+    state.phase !== "serving" &&
+    state.phase !== "gameover" &&
+    state.level >= COUNTRIES[country].unlockLevel &&
+    state.credits >= cost
+  )
+}
+
+export function openBranch(state: GameState, country: CountryId): GameState {
+  const cost = branchCost(state, country)
+  if (!canOpenBranch(state, country) || cost === null) return state
+  const n = branchesIn(state, country) + 1
+  return addLog(
+    { ...state, credits: state.credits - cost, branches: { ...state.branches, [country]: n } },
+    "upgrade",
+    `>> 在${COUNTRIES[country].name}開了第 ${n} 家分店，花費 ${cost} 信用點。在這裡營業時每晚多 ${GAME_RULES.branchGuests} 位客人。`,
+  )
+}
+
+// Guests per night are capped by the seats, so a busy place never gets more than you can serve
+export function maxGuests(state: Pick<GameState, "tables">): number {
+  return seatsOf(state.tables).length * GAME_RULES.guestsPerSeat
+}
+
+export function shiftGuestTotal(state: GameState, rng: Rng): number {
+  const total =
+    shiftCustomerCount(state.reputation, state.level, rng) +
+    currentStage(state).extraGuests +
+    branchesIn(state, state.country) * GAME_RULES.branchGuests
+  return Math.min(total, maxGuests(state))
 }
 
 // Ingredients a player can get by watching an ad: anything not rarer than 特產 here
@@ -505,13 +641,24 @@ export function serveCustomer(
   const tip = tipFor(customer, price, favorite, patience)
   const rep = favorite ? 2 : 1
   const sales = { ...state.sales, [state.country]: (state.sales[state.country] ?? 0) + price + tip }
-  let next: GameState = { ...state, credits: state.credits + price + tip, reputation: state.reputation + rep, sales }
+  let next: GameState = {
+    ...state,
+    credits: state.credits + price + tip,
+    reputation: state.reputation + rep,
+    sales,
+    weekIncome: state.weekIncome + price + tip,
+  }
   next = addLog(
     next,
     "sale",
     `${customer.name} 吃到 [${DISHES[dishId].name}]${favorite ? "，是最愛！" : "。"} +${price} 小費 +${tip}`,
   )
   return next
+}
+
+// A picky customer who finds no favorite on the menu doesn't come in
+export function customerSkipped(state: GameState, customer: CustomerType): GameState {
+  return addLog(state, "miss", `${customer.name} 看了看菜單，沒有想吃的就走了。`)
 }
 
 export function customerWalkout(state: GameState, customer: CustomerType): GameState {
@@ -534,7 +681,7 @@ export function endShift(state: GameState, summary: ShiftSummary, rng: Rng): Gam
     `打烊結算：來客 ${summary.guests}，服務 ${summary.served}，流失 ${summary.lost}，收入 ${summary.income} 信用點。` +
       (summary.wasted > 0 ? `浪費了 ${summary.wasted} 份沒送出的菜。` : ""),
   )
-  if (rng() < 0.4) {
+  if (rng() < currentStage(state).eventChance) {
     const id = pick<EventId>(["gang", "critic", "hack"], rng)
     next = { ...next, pendingEvent: { id } }
     next = addLog(next, "event", EVENTS[id].intro)
@@ -661,6 +808,7 @@ function withBest(state: GameState): GameState {
   const best = {
     days: Math.max(state.best.days, state.day),
     level: Math.max(state.best.level, state.level),
+    stage: Math.max(state.best.stage ?? 0, weekOf(state.day)),
   }
   return { ...state, best }
 }
@@ -679,15 +827,51 @@ export function nextDay(state: GameState): GameState {
       )
     }
     next = addLog({ ...next, credits: next.credits - rent }, "rent", `繳了第 ${weekOf(state.day)} 週房租 ${rent} 信用點。`)
+    next = clearStage(next)
   }
   const free = storeLevel(next).freeDraws
-  next = withBest({ ...next, day: next.day + 1, phase: "prep", freeDrawsLeft: free, adClaims: 0 })
+  next = withBest({
+    ...next,
+    day: next.day + 1,
+    phase: "prep",
+    freeDrawsLeft: free,
+    adDrawsLeft: GAME_RULES.adDrawsPerDay,
+    adCoinsLeft: GAME_RULES.adCoinsPerDay,
+    adClaims: 0,
+  })
   const upcoming = rentDue(next)
   return addLog(
     next,
     "system",
     `>> 第 ${next.day} 天。今天的 ${free} 次免費抽取已補滿，${COUNTRIES[next.country].name}今天的招牌是 [${DISHES[hotDish(next.country, next.day)].name}]。` +
-      (next.day % GAME_RULES.rentEvery === 1 ? `這週房租 ${upcoming.amount} 信用點，${upcoming.inDays} 天後打烊時繳。` : ""),
+      (next.day % GAME_RULES.rentEvery === 1
+        ? `第 ${weekOf(next.day)} 關「${currentStage(next).name}」開始：${currentStage(next).intro}這週房租 ${upcoming.amount} 信用點，${upcoming.inDays} 天後打烊時繳。`
+        : ""),
+  )
+}
+
+// Rent is paid: the week's stage is cleared, with stars for how much was taken
+function clearStage(state: GameState): GameState {
+  const week = weekOf(state.day)
+  const stars = starsFor(state.weekIncome, week, state.level)
+  const credits = stageReward(stars, week, state.level)
+  const [two, three] = starTargets(week, state.level)
+  const stageStars = [...state.stageStars]
+  stageStars[week - 1] = stars
+  const next: GameState = {
+    ...state,
+    credits: state.credits + credits,
+    weekIncome: 0,
+    stageStars,
+    stageBonus: credits > 0 ? { week, credits, doubled: false } : null,
+  }
+  return addLog(
+    next,
+    "upgrade",
+    `>> 第 ${week} 關「${stageFor(week).name}」過關！${"★".repeat(stars)}${"☆".repeat(3 - stars)} 本週營收 ${state.weekIncome}` +
+      (credits > 0
+        ? `，獎勵 ${credits} 信用點（這週看廣告可以再領一次）。`
+        : `。營收到 ${two} 拿 2 星、${three} 拿 3 星就有獎勵。`),
   )
 }
 
@@ -708,11 +892,18 @@ export function loadGame(raw: string | null, now: number): GameState {
       lastDraw: null,
       tables: DEFAULT_TABLES,
       level: 0,
+      adDrawsLeft: GAME_RULES.adDrawsPerDay,
+      adCoinsLeft: GAME_RULES.adCoinsPerDay,
+      weekIncome: 0,
+      stageStars: [],
+      stageBonus: null,
       best: { days: 0, level: 0 },
       country: "taipei",
       sales: {},
       discovered: INGREDIENT_IDS.filter((id) => inventory[id] > 0),
       adClaims: 0,
+      stapleBought: {},
+      branches: {},
       ...rest,
       version: 3,
       inventory,
