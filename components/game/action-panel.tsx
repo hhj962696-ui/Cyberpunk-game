@@ -1,6 +1,7 @@
-import { ArrowUpCircle, ChevronRight, Dices, Moon, RotateCcw, Sunrise, Tv } from "lucide-react"
+import { ArrowUpCircle, ChevronRight, Coins, Dices, Gift, Moon, RotateCcw, Sunrise, Tv } from "lucide-react"
 import { GAME_RULES } from "@/lib/game/data"
-import { nextStoreLevel, rentDue, storeLevel, type GameState } from "@/lib/game/engine"
+import { nextStoreLevel, rentDue, storeLevel, weekOf, type GameState } from "@/lib/game/engine"
+import { adCoinReward } from "@/lib/game/stages"
 
 interface ActionButtonProps {
   icon: React.ReactNode
@@ -46,6 +47,8 @@ interface Props {
   state: GameState
   onDraw: () => void
   onAdDraw: () => void
+  onAdCoins: () => void
+  onDoubleBonus: () => void
   adPlaying: boolean
   onOpen: () => void
   onNextDay: () => void
@@ -53,12 +56,15 @@ interface Props {
   onReset: () => void
 }
 
-export function ActionPanel({ state, onDraw, onAdDraw, adPlaying, onOpen, onNextDay, onUpgrade, onReset }: Props) {
+export function ActionPanel({ state, onDraw, onAdDraw, onAdCoins, onDoubleBonus, adPlaying, onOpen, onNextDay, onUpgrade, onReset }: Props) {
   const prep = state.phase === "prep"
   const free = state.freeDrawsLeft > 0
   const upgrade = nextStoreLevel(state)
   const rent = rentDue(state)
   const rentTonight = state.phase === "closed" && rent.inDays === 0
+  const coinReward = adCoinReward(weekOf(state.day), state.level)
+  const bonus = state.stageBonus && !state.stageBonus.doubled ? state.stageBonus : null
+  const between = state.phase === "prep" || state.phase === "closed"
   return (
     <div className="h-full flex flex-col">
       <div className="border-b border-border p-4">
@@ -87,6 +93,28 @@ export function ActionPanel({ state, onDraw, onAdDraw, adPlaying, onOpen, onNext
           onClick={onAdDraw}
           disabled={!prep || adPlaying || state.adDrawsLeft <= 0}
         />
+      </div>
+
+      <div className="p-4 space-y-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">// 免費領信用點</div>
+        <ActionButton
+          icon={<Coins className="w-5 h-5" />}
+          label={adPlaying ? "廣告播放中…" : `看廣告領 ${coinReward} 信用點`}
+          sublabel={`今天還有 ${state.adCoinsLeft} / ${GAME_RULES.adCoinsPerDay} 次`}
+          variant="primary"
+          onClick={onAdCoins}
+          disabled={!between || adPlaying || state.adCoinsLeft <= 0}
+        />
+        {bonus && (
+          <ActionButton
+            icon={<Gift className="w-5 h-5" />}
+            label={adPlaying ? "廣告播放中…" : `看廣告讓第 ${bonus.week} 關獎勵加倍`}
+            sublabel={`再拿 ${bonus.credits} 信用點`}
+            variant="primary"
+            onClick={onDoubleBonus}
+            disabled={!between || adPlaying}
+          />
+        )}
       </div>
 
       <div className="p-4 space-y-2 border-b border-border">

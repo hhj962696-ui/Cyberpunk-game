@@ -392,6 +392,7 @@ export const GAME_RULES = {
   extraDrawCost: 30,
   rentEvery: 7,
   adDrawsPerDay: 2,
+  adCoinsPerDay: 3,
   vendorRefreshMs: 12 * 60 * 60 * 1000,
   vendorOfferCount: 4,
 }

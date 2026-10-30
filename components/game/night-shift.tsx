@@ -7,6 +7,8 @@ import { sfx } from "@/lib/game/sound"
 import {
   chooseOrder,
   cookDish,
+  currentStage,
+  customerSkipped,
   craftableCount,
   customerWalkout,
   DOOR,
@@ -108,12 +110,18 @@ interface Scene {
   nextKey: number
   done: boolean
   refillUsed: boolean
+  // from the week's stage
+  patienceMult: number
+  pickyRate: number
 }
 
 function newScene(state: GameState): Scene {
-  const total = shiftCustomerCount(state.reputation, state.level, Math.random)
+  const stage = currentStage(state)
+  const total = shiftCustomerCount(state.reputation, state.level, Math.random) + stage.extraGuests
   const level = storeLevel(state)
   return {
+    patienceMult: stage.patienceMult,
+    pickyRate: stage.pickyRate,
     elapsed: 0,
     totalGuests: total,
     toSpawn: total,
@@ -184,9 +192,18 @@ export function NightShift({ state, act, ad }: Props) {
         const free = seats.map((_, i) => i).filter((i) => !taken.has(i))
         const customer = pickCustomer(Math.random)
         const order = chooseOrder(customer, menuRef.current, Math.random, hotRef.current)
-        if (free.length > 0 && order) {
+        if (free.length > 0 && order && !order.favorite && Math.random() < sc.pickyRate) {
+          // picky guest: looks at the menu from the door and leaves
+          sc.toSpawn--
+          sc.summary.guests++
+          sc.summary.lost++
+          sc.floats.push({ key: sc.nextKey++, u: DOOR.x + 1, v: DOOR.y, text: "沒有我想吃的…", good: false, until: now + 1400 })
+          act((s) => customerSkipped(s, customer))
+          const gap = LAST_ARRIVAL_MS / sc.totalGuests
+          sc.nextSpawnAt = now + gap * (0.5 + Math.random() * 0.8)
+        } else if (free.length > 0 && order) {
           const seat = free[Math.floor(Math.random() * free.length)]
-          const maxPatience = (customer.id === "tycoon" ? 14_000 : 18_000) + Math.random() * 5000
+          const maxPatience = ((customer.id === "tycoon" ? 14_000 : 18_000) + Math.random() * 5000) * sc.patienceMult
           sc.guests.push({
             key: sc.nextKey++,
             seat,

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { BookOpen, Globe2, GraduationCap, ScrollText, Store, Trophy, Utensils, UtensilsCrossed, Volume2, VolumeX } from "lucide-react"
+import { BookOpen, Flag, Globe2, GraduationCap, ScrollText, Store, Trophy, Utensils, UtensilsCrossed, Volume2, VolumeX } from "lucide-react"
 import { StatsPanel } from "@/components/game/stats-panel"
 import { NightLog } from "@/components/game/night-log"
 import { MenuBoard } from "@/components/game/menu-board"
@@ -11,6 +11,7 @@ import { NightShift } from "@/components/game/night-shift"
 import { DrawReveal } from "@/components/game/draw-reveal"
 import { Tutorial, TUTORIAL_KEY } from "@/components/game/tutorial"
 import { WorldMap } from "@/components/game/world-map"
+import { StageMap } from "@/components/game/stage-map"
 import { Codex } from "@/components/game/codex"
 import { Leaderboard } from "@/components/game/leaderboard"
 import { useGame } from "@/hooks/use-game"
@@ -18,12 +19,13 @@ import { useGameSounds } from "@/hooks/use-game-sounds"
 import { useLeaderboard } from "@/hooks/use-leaderboard"
 import { useRewardedAd } from "@/hooks/use-rewarded-ad"
 import { COUNTRIES } from "@/lib/game/data"
-import { adDraw, buyFromVendor, draw, nextDay, noteAdUnavailable, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
+import { adCoins, adDraw, buyFromVendor, currentStage, weekOf, doubleStageBonus, draw, nextDay, noteAdUnavailable, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
 
-type Tab = "floor" | "menu" | "vendor" | "world" | "codex" | "rank" | "log"
+type Tab = "floor" | "stage" | "menu" | "vendor" | "world" | "codex" | "rank" | "log"
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "floor", label: "餐廳", icon: <Utensils className="w-4 h-4" /> },
+  { id: "stage", label: "關卡", icon: <Flag className="w-4 h-4" /> },
   { id: "menu", label: "菜單", icon: <UtensilsCrossed className="w-4 h-4" /> },
   { id: "vendor", label: "攤販", icon: <Store className="w-4 h-4" /> },
   { id: "world", label: "地區", icon: <Globe2 className="w-4 h-4" /> },
@@ -102,6 +104,12 @@ export default function GamePage() {
             <span className="text-neon-pink">{COUNTRIES[state.country].name}</span>
           </div>
           <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">STAGE:</span>
+            <span className="text-neon-gold">
+              {weekOf(state.day)} · {currentStage(state).name}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="text-muted-foreground">LV:</span>
             <span className="text-neon-purple">{storeLevel(state).name}</span>
           </div>
@@ -169,6 +177,7 @@ export default function GamePage() {
             {tab === "menu" && <MenuBoard state={state} onToggle={(id) => act((s) => toggleMenu(s, id))} />}
             {tab === "vendor" && <VendorStall state={state} now={now} onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))} />}
             {tab === "world" && <WorldMap state={state} onTravel={(c) => act((s) => travel(s, c))} />}
+            {tab === "stage" && <StageMap state={state} />}
             {tab === "codex" && <Codex state={state} />}
             {tab === "rank" && <Leaderboard state={state} player={player} onRename={rename} />}
           </div>
@@ -182,6 +191,14 @@ export default function GamePage() {
             onAdDraw={async () => {
               const rewarded = await ad.show()
               act((s) => (rewarded ? adDraw(s, Math.random) : noteAdUnavailable(s)))
+            }}
+            onAdCoins={async () => {
+              const rewarded = await ad.show()
+              act((s) => (rewarded ? adCoins(s) : noteAdUnavailable(s)))
+            }}
+            onDoubleBonus={async () => {
+              const rewarded = await ad.show()
+              act((s) => (rewarded ? doubleStageBonus(s) : noteAdUnavailable(s)))
             }}
             onOpen={() => {
               act(startShift)
