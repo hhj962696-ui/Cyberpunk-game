@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ScrollText, Store, Utensils, UtensilsCrossed } from "lucide-react"
+import { GraduationCap, ScrollText, Store, Utensils, UtensilsCrossed, Volume2, VolumeX } from "lucide-react"
 import { StatsPanel } from "@/components/game/stats-panel"
 import { NightLog } from "@/components/game/night-log"
 import { MenuBoard } from "@/components/game/menu-board"
@@ -9,8 +9,10 @@ import { VendorStall } from "@/components/game/vendor-stall"
 import { ActionPanel } from "@/components/game/action-panel"
 import { NightShift } from "@/components/game/night-shift"
 import { DrawReveal } from "@/components/game/draw-reveal"
+import { Tutorial, TUTORIAL_KEY } from "@/components/game/tutorial"
 import { useGame } from "@/hooks/use-game"
-import { buyFromVendor, draw, nextDay, resolveEvent, startShift, toggleMenu } from "@/lib/game/engine"
+import { useGameSounds } from "@/hooks/use-game-sounds"
+import { buyFromVendor, draw, nextDay, resolveEvent, startShift, storeLevel, toggleMenu, upgradeStore } from "@/lib/game/engine"
 
 type Tab = "floor" | "menu" | "vendor" | "log"
 
@@ -24,7 +26,33 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 export default function GamePage() {
   const { state, now, act, reset } = useGame()
   const [tab, setTab] = useState<Tab>("floor")
+  const { muted, toggleMute } = useGameSounds(state)
+  const [tutorial, setTutorial] = useState(false)
+  const loaded = state !== null
   const eventId = state?.pendingEvent?.id
+
+  // First visit with a fresh game: walk the player through day 1
+  useEffect(() => {
+    if (!loaded) return
+    let seen = false
+    try {
+      seen = localStorage.getItem(TUTORIAL_KEY) === "done"
+    } catch {
+      // storage unavailable: show it
+    }
+    if (!seen && state?.day === 1 && state.phase === "prep") setTutorial(true)
+    // only decide once, when the save has loaded
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
+
+  const finishTutorial = () => {
+    setTutorial(false)
+    try {
+      localStorage.setItem(TUTORIAL_KEY, "done")
+    } catch {
+      // ignore
+    }
+  }
 
   // Events are answered in the log
   useEffect(() => {
@@ -51,12 +79,16 @@ export default function GamePage() {
               NEON<span className="text-neon-green">_</span>NIGHT<span className="text-neon-purple">_</span>MARKET
             </h1>
           </div>
-          <span className="text-xs text-muted-foreground border border-border px-2 py-1 rounded-sm">霓虹夜市 v0.1</span>
+          <span className="text-xs text-muted-foreground border border-border px-2 py-1 rounded-sm">霓虹夜市 v0.2</span>
         </div>
         <div className="flex items-center gap-6 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">DAY:</span>
             <span className="text-neon-green font-mono">{String(state.day).padStart(2, "0")}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">LV:</span>
+            <span className="text-neon-purple">{storeLevel(state).name}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">CREDITS:</span>
@@ -65,6 +97,27 @@ export default function GamePage() {
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">TIME:</span>
             <span className="text-foreground font-mono">{clock}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                setTab("floor")
+                setTutorial(true)
+              }}
+              className="p-1.5 rounded-sm border border-border text-muted-foreground hover:text-neon-gold hover:border-neon-gold/60"
+              aria-label="新手教學"
+              title="新手教學"
+            >
+              <GraduationCap className="w-4 h-4" />
+            </button>
+            <button
+              onClick={toggleMute}
+              className="p-1.5 rounded-sm border border-border text-muted-foreground hover:text-neon-green hover:border-neon-green/60"
+              aria-label={muted ? "開啟音效" : "關閉音效"}
+              title={muted ? "開啟音效" : "關閉音效"}
+            >
+              {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
           </div>
         </div>
       </header>
@@ -112,6 +165,7 @@ export default function GamePage() {
               setTab("floor")
             }}
             onNextDay={() => act(nextDay)}
+            onUpgrade={() => act(upgradeStore)}
             onReset={() => {
               reset()
               setTab("floor")
@@ -121,6 +175,7 @@ export default function GamePage() {
       </div>
 
       <DrawReveal draw={state.lastDraw} />
+      {tutorial && <Tutorial state={state} onFinish={finishTutorial} />}
       <div className="fixed bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-neon-green/30 to-transparent pointer-events-none" />
       <div className="fixed top-0 left-0 w-16 h-16 border-l-2 border-t-2 border-neon-green/30 pointer-events-none" />
       <div className="fixed top-0 right-0 w-16 h-16 border-r-2 border-t-2 border-neon-purple/30 pointer-events-none" />

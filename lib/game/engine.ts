@@ -7,16 +7,19 @@ import {
   GAME_RULES,
   INGREDIENTS,
   INGREDIENT_IDS,
+  rentFor,
+  STORE_LEVELS,
   VENDOR_BASE_PRICE,
   type CustomerType,
   type DishId,
   type IngredientId,
   type Rarity,
+  type StoreLevel,
 } from "./data"
 
 export type Inventory = Record<IngredientId, number>
 
-export type LogType = "system" | "draw" | "sale" | "miss" | "event" | "result"
+export type LogType = "system" | "draw" | "sale" | "miss" | "event" | "result" | "upgrade" | "rent"
 
 export interface LogEntry {
   id: number
@@ -33,9 +36,16 @@ export interface PendingEvent {
 
 export type Phase = "prep" | "serving" | "closed" | "gameover"
 
+export interface RunRecord {
+  days: number
+  level: number
+}
+
 export interface GameState {
-  version: 1
+  version: 2
   day: number
+  // index into STORE_LEVELS
+  level: number
   phase: Phase
   credits: number
   reputation: number
@@ -47,7 +57,8 @@ export interface GameState {
   pendingEvent: PendingEvent | null
   log: LogEntry[]
   nextLogId: number
-  won: boolean | null
+  // the longest run on this device, carried over when starting again
+  best: RunRecord
   lastDraw: { id: IngredientId; amount: number; seq: number } | null
   tables: Tile[]
 }
@@ -66,7 +77,20 @@ export function vendorSlotAt(now: number): number {
   return Math.floor(now / GAME_RULES.vendorRefreshMs)
 }
 
-export function newGame(now: number): GameState {
+export function storeLevel(state: Pick<GameState, "level">): StoreLevel {
+  return STORE_LEVELS[Math.min(state.level, STORE_LEVELS.length - 1)]
+}
+
+export function weekOf(day: number): number {
+  return Math.ceil(day / GAME_RULES.rentEvery)
+}
+
+export function rentDue(state: Pick<GameState, "day" | "level">): { amount: number; inDays: number } {
+  const week = weekOf(state.day)
+  return { amount: rentFor(week, state.level + 1), inDays: week * GAME_RULES.rentEvery - state.day }
+}
+
+export function newGame(now: number, best: RunRecord = { days: 0, level: 0 }): GameState {
   const inventory = emptyInventory()
   inventory.noodle = 4
   inventory.synmeat = 2
@@ -74,27 +98,28 @@ export function newGame(now: number): GameState {
   inventory.energy = 1
   inventory.soda = 1
   const state: GameState = {
-    version: 1,
+    version: 2,
     day: 1,
+    level: 0,
     phase: "prep",
     credits: GAME_RULES.startCredits,
     reputation: 0,
     inventory,
     menu: ["ramen", "battery"],
-    freeDrawsLeft: GAME_RULES.freeDrawsPerDay,
+    freeDrawsLeft: STORE_LEVELS[0].freeDraws,
     vendorSlot: vendorSlotAt(now),
     vendorBought: [],
     pendingEvent: null,
     log: [],
     nextLogId: 1,
-    won: null,
+    best,
     lastDraw: null,
     tables: DEFAULT_TABLES,
   }
   return addLog(
     state,
     "system",
-    `>> 第 1 天。你在下城巷弄開了一台餐車。目標：第 ${GAME_RULES.lastDay} 天結束前存到 ${GAME_RULES.goalCredits} 信用點。`,
+    `>> 第 1 天。你在下城巷弄開了一台餐車。每 ${GAME_RULES.rentEvery} 天要繳一次房租，存錢把餐車升級成名店吧。`,
   )
 }
 
@@ -241,8 +266,9 @@ export function toggleMenu(state: GameState, dishId: DishId): GameState {
   if (state.menu.includes(dishId)) {
     return { ...state, menu: state.menu.filter((d) => d !== dishId) }
   }
-  if (state.menu.length >= GAME_RULES.maxMenuSize) {
-    return addLog(state, "system", `菜單最多只能放 ${GAME_RULES.maxMenuSize} 道菜。`)
+  const size = storeLevel(state).menuSize
+  if (state.menu.length >= size) {
+    return addLog(state, "system", `菜單最多只能放 ${size} 道菜，升級店面可以多放。`)
   }
   return { ...state, menu: [...state.menu, dishId] }
 }
@@ -313,8 +339,9 @@ export function chooseOrder(customer: CustomerType, menu: DishId[], rng: Rng): {
   return { dish: pick(menu, rng), favorite: false }
 }
 
-export function shiftCustomerCount(reputation: number, rng: Rng): number {
-  return 6 + Math.floor(Math.max(0, reputation) / 4) + Math.floor(rng() * 3)
+export function shiftCustomerCount(reputation: number, level: number, rng: Rng): number {
+  const crowd = STORE_LEVELS[Math.min(level, STORE_LEVELS.length - 1)].crowd
+  return 6 + crowd + Math.floor(Math.max(0, reputation) / 4) + Math.floor(rng() * 3)
 }
 
 export function startShift(state: GameState): GameState {
@@ -454,28 +481,78 @@ export function resolveEvent(state: GameState, choice: number, rng: Rng): GameSt
   return next
 }
 
+// ---------- store upgrades ----------
+
+export function nextStoreLevel(state: Pick<GameState, "level">): StoreLevel | null {
+  return STORE_LEVELS[state.level + 1] ?? null
+}
+
+// First spot (scanning row by row) where a new table and its chairs fit
+function freeTableSpot(tables: Tile[]): Tile | null {
+  for (let y = 0; y < ROOM_SIZE; y++) {
+    for (let x = 0; x < ROOM_SIZE; x++) {
+      if (canPlaceTable(tables, -1, { x, y })) return { x, y }
+    }
+  }
+  return null
+}
+
+export function upgradeStore(state: GameState): GameState {
+  const target = nextStoreLevel(state)
+  if (!target || state.phase === "serving" || state.phase === "gameover") return state
+  if (state.credits < target.cost) return addLog(state, "system", `升級成「${target.name}」需要 ${target.cost} 信用點。`)
+  const tables = [...state.tables]
+  while (tables.length < target.tables) {
+    const spot = freeTableSpot(tables)
+    if (!spot) break
+    tables.push(spot)
+  }
+  const current = storeLevel(state)
+  const next: GameState = {
+    ...state,
+    level: state.level + 1,
+    credits: state.credits - target.cost,
+    tables,
+    // the extra draws apply right away if you upgrade before drawing today
+    freeDrawsLeft: state.phase === "prep" ? state.freeDrawsLeft + target.freeDraws - current.freeDraws : state.freeDrawsLeft,
+  }
+  return addLog(next, "upgrade", `>> 店面升級成「${target.name}」！${target.perk}`)
+}
+
 // ---------- day transition ----------
+
+function withBest(state: GameState): GameState {
+  const best = {
+    days: Math.max(state.best.days, state.day),
+    level: Math.max(state.best.level, state.level),
+  }
+  return { ...state, best }
+}
 
 export function nextDay(state: GameState): GameState {
   if (state.phase !== "closed" || state.pendingEvent) return state
-  if (state.day >= GAME_RULES.lastDay) {
-    const won = state.credits >= GAME_RULES.goalCredits
-    const next: GameState = { ...state, phase: "gameover", won }
-    return addLog(
-      next,
-      "system",
-      won
-        ? `>> 第 ${GAME_RULES.lastDay} 天結束，你存到 ${state.credits} 信用點！餐車升級成小店，霓虹夜市記住了你的名字。`
-        : `>> 第 ${GAME_RULES.lastDay} 天結束，只存到 ${state.credits} 信用點，離目標 ${GAME_RULES.goalCredits} 還差一點。再試一次吧。`,
-    )
+  let next: GameState = state
+  if (state.day % GAME_RULES.rentEvery === 0) {
+    const rent = rentDue(state).amount
+    if (state.credits < rent) {
+      const over = withBest({ ...state, phase: "gameover" })
+      return addLog(
+        over,
+        "result",
+        `>> 房租 ${rent} 信用點繳不出來，房東把${storeLevel(state).name}收回了。你撐了 ${state.day} 天。`,
+      )
+    }
+    next = addLog({ ...next, credits: next.credits - rent }, "rent", `繳了第 ${weekOf(state.day)} 週房租 ${rent} 信用點。`)
   }
-  const next: GameState = {
-    ...state,
-    day: state.day + 1,
-    phase: "prep",
-    freeDrawsLeft: GAME_RULES.freeDrawsPerDay,
-  }
-  return addLog(next, "system", `>> 第 ${next.day} 天。今天的 ${GAME_RULES.freeDrawsPerDay} 次免費抽取已補滿。`)
+  const free = storeLevel(next).freeDraws
+  next = withBest({ ...next, day: next.day + 1, phase: "prep", freeDrawsLeft: free })
+  const upcoming = rentDue(next)
+  return addLog(
+    next,
+    "system",
+    `>> 第 ${next.day} 天。今天的 ${free} 次免費抽取已補滿。` +
+      (next.day % GAME_RULES.rentEvery === 1 ? `這週房租 ${upcoming.amount} 信用點，${upcoming.inDays} 天後打烊時繳。` : ""),
+  )
 }
 
 // ---------- persistence ----------
@@ -485,9 +562,20 @@ export const SAVE_KEY = "neon-night-market-save"
 export function loadGame(raw: string | null, now: number): GameState {
   if (!raw) return newGame(now)
   try {
-    const parsed = JSON.parse(raw) as Partial<GameState> & Pick<GameState, "version">
-    if (parsed.version !== 1) return newGame(now)
-    let state = { lastDraw: null, tables: DEFAULT_TABLES, ...parsed, inventory: { ...emptyInventory(), ...parsed.inventory } } as GameState
+    const parsed = JSON.parse(raw) as Omit<Partial<GameState>, "version"> & { version: number; won?: unknown }
+    if (parsed.version !== 1 && parsed.version !== 2) return newGame(now)
+    // v1 was a fixed 7-day run; a finished one starts over, an unfinished one keeps going
+    if (parsed.version === 1 && parsed.phase === "gameover") return newGame(now)
+    const { won: _won, ...rest } = parsed
+    let state = {
+      lastDraw: null,
+      tables: DEFAULT_TABLES,
+      level: 0,
+      best: { days: 0, level: 0 },
+      ...rest,
+      version: 2,
+      inventory: { ...emptyInventory(), ...parsed.inventory },
+    } as GameState
     // The page was closed mid-shift: the night is over
     if (state.phase === "serving") {
       state = addLog({ ...state, phase: "closed" }, "system", "營業中途離開，今晚提早打烊了。")

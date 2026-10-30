@@ -40,7 +40,17 @@ export function useGame() {
     setState((s) => (s ? fn(s) : s))
   }, [])
 
-  const reset = useCallback(() => setState(newGame(Date.now())), [])
+  // Starting over keeps the best run on this device
+  const reset = useCallback(
+    () =>
+      setState((s) =>
+        newGame(
+          Date.now(),
+          s ? { days: Math.max(s.best.days, s.day), level: Math.max(s.best.level, s.level) } : undefined,
+        ),
+      ),
+    [],
+  )
 
   return { state, now, act, reset }
 }

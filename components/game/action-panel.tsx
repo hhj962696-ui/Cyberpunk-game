@@ -1,6 +1,6 @@
-import { ChevronRight, Dices, Moon, RotateCcw, Sunrise } from "lucide-react"
+import { ArrowUpCircle, ChevronRight, Dices, Moon, RotateCcw, Sunrise } from "lucide-react"
 import { GAME_RULES } from "@/lib/game/data"
-import type { GameState } from "@/lib/game/engine"
+import { nextStoreLevel, rentDue, storeLevel, type GameState } from "@/lib/game/engine"
 
 interface ActionButtonProps {
   icon: React.ReactNode
@@ -9,6 +9,7 @@ interface ActionButtonProps {
   variant: "primary" | "secondary" | "danger"
   onClick?: () => void
   disabled?: boolean
+  tut?: string
 }
 
 const VARIANT = {
@@ -19,12 +20,13 @@ const VARIANT = {
 
 const ICON_COLOR = { primary: "text-neon-green", secondary: "text-neon-purple", danger: "text-destructive" }
 
-function ActionButton({ icon, label, sublabel, variant, onClick, disabled }: ActionButtonProps) {
+function ActionButton({ icon, label, sublabel, variant, onClick, disabled, tut }: ActionButtonProps) {
   return (
     <button
       className={`relative w-full p-3 rounded-sm border transition-all duration-200 text-left group active:scale-[0.98] ${VARIANT[variant]} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none`}
       onClick={onClick}
       disabled={disabled}
+      data-tut={tut}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -45,12 +47,16 @@ interface Props {
   onDraw: () => void
   onOpen: () => void
   onNextDay: () => void
+  onUpgrade: () => void
   onReset: () => void
 }
 
-export function ActionPanel({ state, onDraw, onOpen, onNextDay, onReset }: Props) {
+export function ActionPanel({ state, onDraw, onOpen, onNextDay, onUpgrade, onReset }: Props) {
   const prep = state.phase === "prep"
   const free = state.freeDrawsLeft > 0
+  const upgrade = nextStoreLevel(state)
+  const rent = rentDue(state)
+  const rentTonight = state.phase === "closed" && rent.inDays === 0
   return (
     <div className="h-full flex flex-col">
       <div className="border-b border-border p-4">
@@ -65,9 +71,10 @@ export function ActionPanel({ state, onDraw, onOpen, onNextDay, onReset }: Props
         <ActionButton
           icon={<Dices className="w-5 h-5" />}
           label={free ? "每日抽食材" : "加抽一次"}
-          sublabel={free ? `今天免費 ${state.freeDrawsLeft} / ${GAME_RULES.freeDrawsPerDay} 次` : `花費 ${GAME_RULES.extraDrawCost} 信用點`}
+          sublabel={free ? `今天免費 ${state.freeDrawsLeft} / ${storeLevel(state).freeDraws} 次` : `花費 ${GAME_RULES.extraDrawCost} 信用點`}
           variant="primary"
           onClick={onDraw}
+          tut="draw"
           disabled={!prep || (!free && state.credits < GAME_RULES.extraDrawCost)}
         />
       </div>
@@ -81,14 +88,37 @@ export function ActionPanel({ state, onDraw, onOpen, onNextDay, onReset }: Props
           variant="secondary"
           onClick={onOpen}
           disabled={!prep || state.menu.length === 0}
+          tut="open"
         />
         <ActionButton
           icon={<Sunrise className="w-5 h-5" />}
-          label={state.day >= GAME_RULES.lastDay ? "最終結算" : "進入下一天"}
-          sublabel={state.pendingEvent ? "先處理突發事件" : undefined}
-          variant="secondary"
+          label={rentTonight ? "繳房租，進入下一天" : "進入下一天"}
+          sublabel={
+            state.pendingEvent
+              ? "先處理突發事件"
+              : rentTonight
+                ? state.credits >= rent.amount
+                  ? `房租 ${rent.amount} 信用點`
+                  : `房租 ${rent.amount}，錢不夠就會被收店！`
+                : undefined
+          }
+          variant={rentTonight && state.credits < rent.amount ? "danger" : "secondary"}
           onClick={onNextDay}
           disabled={state.phase !== "closed" || state.pendingEvent !== null}
+          tut="nextday"
+        />
+      </div>
+
+      <div className="p-4 space-y-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">// 店面</div>
+        <ActionButton
+          icon={<ArrowUpCircle className="w-5 h-5" />}
+          label={upgrade ? `升級成「${upgrade.name}」` : "已經是最高等級"}
+          sublabel={upgrade ? `${upgrade.cost} 信用點 · ${upgrade.perk}` : "霓虹夜市的傳奇名店"}
+          variant="primary"
+          onClick={onUpgrade}
+          disabled={!upgrade || state.credits < upgrade.cost || state.phase === "serving" || state.phase === "gameover"}
+          tut="upgrade"
         />
       </div>
 

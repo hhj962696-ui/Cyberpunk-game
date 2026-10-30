@@ -1,6 +1,6 @@
 import { Check, Plus } from "lucide-react"
-import { DISHES, DISH_IDS, GAME_RULES, INGREDIENTS, type IngredientId } from "@/lib/game/data"
-import { craftableCount, type GameState } from "@/lib/game/engine"
+import { DISHES, DISH_IDS, INGREDIENTS, type IngredientId } from "@/lib/game/data"
+import { craftableCount, storeLevel, type GameState } from "@/lib/game/engine"
 import { DishIcon, IngredientIcon } from "./food-icon"
 
 export function MenuBoard({ state, onToggle }: { state: GameState; onToggle: (id: (typeof DISH_IDS)[number]) => void }) {
@@ -8,7 +8,7 @@ export function MenuBoard({ state, onToggle }: { state: GameState; onToggle: (id
   return (
     <div className="h-full overflow-y-auto p-4">
       <p className="text-xs text-muted-foreground mb-4">
-        菜單最多 {GAME_RULES.maxMenuSize} 道（已選 {state.menu.length}）。食材夠才做得出來，客人點不到菜就會失望離開。
+        菜單最多 {storeLevel(state).menuSize} 道（已選 {state.menu.length}）。食材夠才做得出來，客人點不到菜就會失望離開。
       </p>
       <ul className="grid gap-3 md:grid-cols-2">
         {DISH_IDS.map((id) => {
