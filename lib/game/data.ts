@@ -389,6 +389,13 @@ export const CUSTOMERS: CustomerType[] = [
 
 export const GAME_RULES = {
   startCredits: 200,
+  // share of draws that land on something the menu needs (only easy ingredients)
+  menuDrawChance: 0.6,
+  // the staple shelf: a country's 大宗 ingredients, always in stock at this price
+  staplePrice: 8,
+  // ingredient packs a player can get by watching an ad, per day
+  adIngredientsPerDay: 3,
+  adIngredientAmount: 3,
   extraDrawCost: 30,
   rentEvery: 7,
   adDrawsPerDay: 2,

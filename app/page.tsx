@@ -19,7 +19,7 @@ import { useGameSounds } from "@/hooks/use-game-sounds"
 import { useLeaderboard } from "@/hooks/use-leaderboard"
 import { useRewardedAd } from "@/hooks/use-rewarded-ad"
 import { COUNTRIES } from "@/lib/game/data"
-import { adCoins, adDraw, buyFromVendor, currentStage, weekOf, doubleStageBonus, draw, nextDay, noteAdUnavailable, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
+import { adCoins, adDraw, buyFromVendor, buyStaple, claimAdIngredient, currentStage, weekOf, doubleStageBonus, draw, nextDay, noteAdUnavailable, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
 
 type Tab = "floor" | "stage" | "menu" | "vendor" | "world" | "codex" | "rank" | "log"
 
@@ -175,7 +175,20 @@ export default function GamePage() {
             </div>
             {tab === "log" && <NightLog state={state} onChoose={(c) => act((s) => resolveEvent(s, c, Math.random))} />}
             {tab === "menu" && <MenuBoard state={state} onToggle={(id) => act((s) => toggleMenu(s, id))} />}
-            {tab === "vendor" && <VendorStall state={state} now={now} onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))} />}
+            {tab === "vendor" && (
+              <VendorStall
+                state={state}
+                now={now}
+                onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))}
+                onBuyStaple={(id) => act((s) => buyStaple(s, id))}
+                onWatchAd={async () => {
+                  const rewarded = await ad.show()
+                  if (!rewarded) act(noteAdUnavailable)
+                  return rewarded
+                }}
+                onAdReward={(id) => act((s) => claimAdIngredient(s, id))}
+              />
+            )}
             {tab === "world" && <WorldMap state={state} onTravel={(c) => act((s) => travel(s, c))} />}
             {tab === "stage" && <StageMap state={state} />}
             {tab === "codex" && <Codex state={state} />}
