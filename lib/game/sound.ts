@@ -72,7 +72,8 @@ export const sfx = {
   click: () => tone(880, { dur: 0.05, gain: 0.04 }),
   draw: (rarity: Rarity) => {
     if (rarity === "legendary") arpeggio([523, 659, 784, 1047, 1319], 0.07, { dur: 0.25, type: "triangle", gain: 0.1 })
-    else if (rarity === "rare") arpeggio([659, 880, 1175], 0.07, { dur: 0.2, type: "triangle", gain: 0.09 })
+    else if (rarity === "epic") arpeggio([587, 740, 880, 1175], 0.07, { dur: 0.22, type: "triangle", gain: 0.1 })
+    else if (rarity === "rare" || rarity === "uncommon") arpeggio([659, 880, 1175], 0.07, { dur: 0.2, type: "triangle", gain: 0.09 })
     else arpeggio([523, 784], 0.06, { dur: 0.12, type: "triangle", gain: 0.07 })
   },
   cook: () => noise({ dur: 0.35, gain: 0.05, freq: 5000 }),

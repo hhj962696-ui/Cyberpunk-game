@@ -1,13 +1,71 @@
-import { INGREDIENTS, type DishId, type IngredientId, type Rarity } from "@/lib/game/data"
+import { DISHES, INGREDIENTS, type Category, type DishId, type DishKind, type IngredientId, type Rarity } from "@/lib/game/data"
 
-const RARITY_COLOR: Record<Rarity, string> = {
+export const RARITY_COLOR: Record<Rarity, string> = {
   common: "var(--neon-green)",
-  rare: "var(--neon-cyan)",
+  uncommon: "var(--neon-cyan)",
+  rare: "var(--neon-purple)",
+  epic: "var(--neon-pink)",
   legendary: "var(--neon-gold)",
 }
 
-// Neon line-art icons, drawn on a 32x32 grid
-const INGREDIENT_PATHS: Record<IngredientId, React.ReactNode> = {
+// Neon line-art icons, drawn on a 32x32 grid. Ingredients without their own
+// drawing use their category's.
+const CATEGORY_PATHS: Record<Category, React.ReactNode> = {
+  grain: (
+    <>
+      <path d="M16 28V6" />
+      <path d="M16 10c-3 0-5-2-5-4 3 0 5 2 5 4zM16 10c3 0 5-2 5-4-3 0-5 2-5 4z" />
+      <path d="M16 16c-3 0-5-2-5-4 3 0 5 2 5 4zM16 16c3 0 5-2 5-4-3 0-5 2-5 4z" />
+      <path d="M16 22c-3 0-5-2-5-4 3 0 5 2 5 4zM16 22c3 0 5-2 5-4-3 0-5 2-5 4z" />
+    </>
+  ),
+  veg: (
+    <>
+      <path d="M16 28c-6 0-10-5-10-11 3 0 7 2 10 6 3-4 7-6 10-6 0 6-4 11-10 11z" />
+      <path d="M16 23V8M16 8c-2-2-2-4 0-5 2 1 2 3 0 5z" />
+    </>
+  ),
+  fruit: (
+    <>
+      <circle cx="16" cy="19" r="9" />
+      <path d="M16 10c0-3 1-5 3-6M17 8c3-2 6-1 7 1-3 1-5 1-7-1z" />
+    </>
+  ),
+  meat: (
+    <>
+      <path d="M8 22c-3-3-3-9 2-13s11-4 13 0 0 9-4 12-8 4-11 1z" />
+      <path d="M8 22l-3 4M5 26l-1-2M5 26l2 1" />
+      <circle cx="15" cy="14" r="2.5" />
+    </>
+  ),
+  seafood: (
+    <>
+      <path d="M4 16c4-6 11-7 17-3l6-4v14l-6-4c-6 4-13 3-17-3z" />
+      <circle cx="10" cy="15" r="1" />
+    </>
+  ),
+  dairy: (
+    <>
+      <path d="M11 4h10M12 4v5l-3 5v14h14V14l-3-5V4" />
+      <path d="M9 18h14" />
+    </>
+  ),
+  spice: (
+    <>
+      <path d="M11 12h10v15a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2z" />
+      <path d="M12 12V8h8v4M13 5h6v3h-6z" />
+      <path d="M14 18h4M14 22h4" />
+    </>
+  ),
+  drink: (
+    <>
+      <path d="M8 8h16l-3 20H11z" />
+      <path d="M9 14h14M19 3l-2 11" />
+    </>
+  ),
+}
+
+const INGREDIENT_PATHS: Partial<Record<IngredientId, React.ReactNode>> = {
   noodle: (
     <>
       <path d="M6 10c4 0 4 4 8 4s4-4 8-4 4 4 4 4" />
@@ -91,12 +149,56 @@ export function IngredientIcon({ id, size = 28 }: { id: IngredientId; size?: num
       aria-label={INGREDIENTS[id].name}
       role="img"
     >
-      {INGREDIENT_PATHS[id]}
+      {INGREDIENT_PATHS[id] ?? CATEGORY_PATHS[INGREDIENTS[id].category]}
     </svg>
   )
 }
 
-const DISH_PATHS: Record<DishId, React.ReactNode> = {
+const KIND_PATHS: Record<DishKind, React.ReactNode> = {
+  bowl: (
+    <>
+      <path d="M4 15h24a12 12 0 0 1-24 0z" />
+      <path d="M9 15c1-3 4-5 7-5s6 2 7 5" />
+      <path d="M12 26h8" />
+    </>
+  ),
+  plate: (
+    <>
+      <ellipse cx="16" cy="20" rx="13" ry="6" />
+      <ellipse cx="16" cy="19" rx="8" ry="3" />
+      <path d="M12 16c1-3 3-4 4-4s3 1 4 4" />
+    </>
+  ),
+  drink: (
+    <>
+      <path d="M9 9h14l-2 19H11z" />
+      <path d="M18 3l-2 6M10 15h12" />
+    </>
+  ),
+  bread: (
+    <>
+      <path d="M5 20c0-7 5-11 11-11s11 4 11 11z" />
+      <path d="M4 20h24v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+      <path d="M11 13l2 3M16 11v4M21 13l-2 3" />
+    </>
+  ),
+  dessert: (
+    <>
+      <path d="M6 26h20l-2-10H8z" />
+      <path d="M8 16c0-4 4-7 8-7s8 3 8 7" />
+      <circle cx="16" cy="6" r="2" />
+    </>
+  ),
+  soup: (
+    <>
+      <path d="M4 14h24v4a12 10 0 0 1-24 0z" />
+      <path d="M11 10c0-2 2-2 2-4M16 10c0-2 2-2 2-4M21 10c0-2 2-2 2-4" />
+      <path d="M2 14h3M27 14h3" />
+    </>
+  ),
+}
+
+const DISH_PATHS: Partial<Record<DishId, React.ReactNode>> = {
   ramen: (
     <>
       <path d="M4 15h24a12 12 0 0 1-24 0z" />
@@ -170,7 +272,7 @@ export function DishIcon({
       style={dim ? undefined : { filter: `drop-shadow(0 0 4px ${color})` }}
       aria-hidden="true"
     >
-      {DISH_PATHS[id]}
+      {DISH_PATHS[id] ?? KIND_PATHS[DISHES[id].kind]}
     </svg>
   )
 }

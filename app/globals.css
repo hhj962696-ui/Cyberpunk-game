@@ -43,6 +43,7 @@
   --neon-purple: oklch(0.60 0.25 300);
   --neon-cyan: oklch(0.80 0.15 210);
   --neon-gold: oklch(0.85 0.17 85);
+  --neon-pink: oklch(0.70 0.24 350);
   --cyber-dark: oklch(0.10 0.01 260);
   --cyber-panel: oklch(0.14 0.015 260);
 }
@@ -89,6 +90,7 @@
   --color-neon-purple: var(--neon-purple);
   --color-neon-cyan: var(--neon-cyan);
   --color-neon-gold: var(--neon-gold);
+  --color-neon-pink: var(--neon-pink);
   --color-cyber-dark: var(--cyber-dark);
   --color-cyber-panel: var(--cyber-panel);
   --color-background: var(--background);

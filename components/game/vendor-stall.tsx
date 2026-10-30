@@ -1,5 +1,5 @@
 import { Clock } from "lucide-react"
-import { GAME_RULES, INGREDIENTS, RARITY_LABEL } from "@/lib/game/data"
+import { COUNTRIES, GAME_RULES, INGREDIENTS, RARITY_LABEL } from "@/lib/game/data"
 import { vendorOffers, type GameState } from "@/lib/game/engine"
 import { IngredientIcon } from "./food-icon"
 
@@ -12,13 +12,15 @@ function formatCountdown(ms: number) {
 }
 
 export function VendorStall({ state, now, onBuy }: { state: GameState; now: number; onBuy: (index: number) => void }) {
-  const offers = vendorOffers(state.vendorSlot)
+  const offers = vendorOffers(state.vendorSlot, state.country)
   const refreshAt = (state.vendorSlot + 1) * GAME_RULES.vendorRefreshMs
   const canBuy = state.phase === "prep"
   return (
     <div className="h-full overflow-y-auto p-4">
       <div className="flex items-center justify-between mb-4">
-        <p className="text-xs text-muted-foreground">老陳的黑市攤販，每 12 小時換一批貨，用信用點購買。</p>
+        <p className="text-xs text-muted-foreground">
+          {COUNTRIES[state.country].name}的黑市攤販，每 12 小時換一批當地貨，換個地區就有不同的貨。
+        </p>
         <div className="flex items-center gap-1 text-xs text-neon-cyan font-mono shrink-0">
           <Clock className="w-3 h-3" /> {formatCountdown(refreshAt - now)}
         </div>

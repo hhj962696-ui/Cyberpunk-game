@@ -13,6 +13,7 @@ const LOG_STYLE: Record<LogEntry["type"], string> = {
   result: "text-neon-purple font-bold",
   upgrade: "text-neon-gold font-bold",
   rent: "text-muted-foreground",
+  travel: "text-neon-pink font-bold",
 }
 
 export function NightLog({ state, onChoose }: { state: GameState; onChoose: (choice: number) => void }) {

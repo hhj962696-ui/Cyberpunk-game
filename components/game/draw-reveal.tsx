@@ -7,7 +7,9 @@ import { IngredientIcon } from "./food-icon"
 
 const RARITY_STYLE = {
   common: "border-neon-green shadow-[0_0_30px_var(--neon-green)]",
-  rare: "border-neon-cyan shadow-[0_0_40px_var(--neon-cyan)]",
+  uncommon: "border-neon-cyan shadow-[0_0_35px_var(--neon-cyan)]",
+  rare: "border-neon-purple shadow-[0_0_40px_var(--neon-purple)]",
+  epic: "border-neon-pink shadow-[0_0_50px_var(--neon-pink)]",
   legendary: "border-neon-gold shadow-[0_0_60px_var(--neon-gold)]",
 }
 

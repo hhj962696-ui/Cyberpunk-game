@@ -1,15 +1,21 @@
 import {
+  COUNTRIES,
+  COUNTRY_IDS,
+  CRAZE_BONUS,
   CUSTOMERS,
   DISHES,
   DISH_IDS,
   DRAW_PACK_SIZE,
   DRAW_WEIGHTS,
   GAME_RULES,
+  HOT_BONUS,
   INGREDIENTS,
   INGREDIENT_IDS,
   rentFor,
   STORE_LEVELS,
   VENDOR_BASE_PRICE,
+  RARITIES,
+  type CountryId,
   type CustomerType,
   type DishId,
   type IngredientId,
@@ -19,7 +25,7 @@ import {
 
 export type Inventory = Record<IngredientId, number>
 
-export type LogType = "system" | "draw" | "sale" | "miss" | "event" | "result" | "upgrade" | "rent"
+export type LogType = "system" | "draw" | "sale" | "miss" | "event" | "result" | "upgrade" | "rent" | "travel"
 
 export interface LogEntry {
   id: number
@@ -42,8 +48,14 @@ export interface RunRecord {
 }
 
 export interface GameState {
-  version: 2
+  version: 3
   day: number
+  // where the stall is set up
+  country: CountryId
+  // credits taken in each country this run (dish price + tips)
+  sales: Partial<Record<CountryId, number>>
+  // every ingredient the player has ever had, for the catalog
+  discovered: IngredientId[]
   // index into STORE_LEVELS
   level: number
   phase: Phase
@@ -98,8 +110,11 @@ export function newGame(now: number, best: RunRecord = { days: 0, level: 0 }): G
   inventory.energy = 1
   inventory.soda = 1
   const state: GameState = {
-    version: 2,
+    version: 3,
     day: 1,
+    country: "taipei",
+    sales: {},
+    discovered: INGREDIENT_IDS.filter((id) => inventory[id] > 0),
     level: 0,
     phase: "prep",
     credits: GAME_RULES.startCredits,
@@ -157,9 +172,9 @@ function consume(inventory: Inventory, dishId: DishId): Inventory {
 // ---------- drawing ----------
 
 function pickRarity(rng: Rng): Rarity {
-  const total = DRAW_WEIGHTS.common + DRAW_WEIGHTS.rare + DRAW_WEIGHTS.legendary
+  const total = RARITIES.reduce((sum, r) => sum + DRAW_WEIGHTS[r], 0)
   let roll = rng() * total
-  for (const rarity of ["common", "rare", "legendary"] as Rarity[]) {
+  for (const rarity of RARITIES) {
     roll -= DRAW_WEIGHTS[rarity]
     if (roll < 0) return rarity
   }
@@ -170,9 +185,19 @@ function pick<T>(items: T[], rng: Rng): T {
   return items[Math.floor(rng() * items.length) % items.length]
 }
 
-export function drawIngredient(rng: Rng): IngredientId {
-  const rarity = pickRarity(rng)
-  return pick(INGREDIENT_IDS.filter((id) => INGREDIENTS[id].rarity === rarity), rng)
+// Draws come from what the current country's market carries. If it has nothing of
+// the rolled rarity, the draw falls back to the next easier one.
+export function drawIngredient(rng: Rng, pool: IngredientId[]): IngredientId {
+  let tier = RARITIES.indexOf(pickRarity(rng))
+  for (; tier > 0; tier--) {
+    if (pool.some((id) => INGREDIENTS[id].rarity === RARITIES[tier])) break
+  }
+  const matching = pool.filter((id) => INGREDIENTS[id].rarity === RARITIES[tier])
+  return pick(matching.length > 0 ? matching : pool, rng)
+}
+
+function discover(state: GameState, id: IngredientId): GameState {
+  return state.discovered.includes(id) ? state : { ...state, discovered: [...state.discovered, id] }
 }
 
 export function draw(state: GameState, rng: Rng): GameState {
@@ -185,16 +210,17 @@ export function draw(state: GameState, rng: Rng): GameState {
   } else {
     return addLog(state, "system", "信用點不足，無法加抽。")
   }
-  const id = drawIngredient(rng)
+  const id = drawIngredient(rng, COUNTRIES[state.country].pool)
   const ing = INGREDIENTS[id]
   const amount = DRAW_PACK_SIZE[ing.rarity]
+  const isNew = !state.discovered.includes(id)
   next = {
-    ...next,
+    ...discover(next, id),
     inventory: { ...next.inventory, [id]: next.inventory[id] + amount },
     lastDraw: { id, amount, seq: (next.lastDraw?.seq ?? 0) + 1 },
   }
-  const tag = ing.rarity === "legendary" ? "★傳說★ " : ing.rarity === "rare" ? "稀有 " : ""
-  return addLog(next, "draw", `抽到 ${tag}[${ing.name}] ×${amount}`)
+  const tag = ing.rarity === "legendary" ? "★傳說★ " : ing.rarity === "epic" ? "珍稀 " : ing.rarity === "rare" ? "特產 " : ""
+  return addLog(next, "draw", `抽到 ${tag}[${ing.name}] ×${amount}${isNew ? "（圖鑑新登錄！）" : ""}`)
 }
 
 // ---------- vendor ----------
@@ -217,17 +243,20 @@ export function seededRng(seed: number): Rng {
   }
 }
 
-export function vendorOffers(slot: number): VendorOffer[] {
-  const rng = seededRng(slot * 7919 + 17)
+// Each country's stall carries its own goods
+export function vendorOffers(slot: number, country: CountryId): VendorOffer[] {
+  const rng = seededRng(slot * 7919 + 17 + COUNTRY_IDS.indexOf(country) * 104729)
+  const pool = COUNTRIES[country].pool
   const offers: VendorOffer[] = []
   const used = new Set<IngredientId>()
-  while (offers.length < GAME_RULES.vendorOfferCount) {
-    const id = drawIngredient(rng)
+  while (offers.length < Math.min(GAME_RULES.vendorOfferCount, pool.length)) {
+    const id = drawIngredient(rng, pool)
     if (used.has(id)) continue
     used.add(id)
     const base = VENDOR_BASE_PRICE[INGREDIENTS[id].rarity]
     const price = Math.round(base * (0.8 + rng() * 0.5))
-    const stock = INGREDIENTS[id].rarity === "legendary" ? 1 : 2 + Math.floor(rng() * 4)
+    const rarity = INGREDIENTS[id].rarity
+    const stock = rarity === "legendary" || rarity === "epic" ? 1 : 2 + Math.floor(rng() * 4)
     offers.push({ ingredient: id, price, stock })
   }
   return offers
@@ -243,7 +272,7 @@ export function syncVendor(state: GameState, now: number): GameState {
 export function buyFromVendor(state: GameState, offerIndex: number, now: number): GameState {
   let next = syncVendor(state, now)
   if (next.phase !== "prep") return next
-  const offer = vendorOffers(next.vendorSlot)[offerIndex]
+  const offer = vendorOffers(next.vendorSlot, next.country)[offerIndex]
   if (!offer) return next
   const bought = next.vendorBought[offerIndex] ?? 0
   if (bought >= offer.stock) return addLog(next, "system", "攤販這項已經賣完了。")
@@ -251,7 +280,7 @@ export function buyFromVendor(state: GameState, offerIndex: number, now: number)
   const vendorBought = [...next.vendorBought]
   vendorBought[offerIndex] = bought + 1
   next = {
-    ...next,
+    ...discover(next, offer.ingredient),
     credits: next.credits - offer.price,
     vendorBought,
     inventory: { ...next.inventory, [offer.ingredient]: next.inventory[offer.ingredient] + 1 },
@@ -330,11 +359,17 @@ export function pickCustomer(rng: Rng): CustomerType {
   return CUSTOMERS[0]
 }
 
-// Customers order a favorite from the menu when they can, otherwise anything on it.
-// They don't know what's in the kitchen, so the player has to have the ingredients.
-export function chooseOrder(customer: CustomerType, menu: DishId[], rng: Rng): { dish: DishId; favorite: boolean } | null {
+// Customers order a favorite (or the country's hot dish of the day) from the menu when
+// they can, otherwise anything on it. They don't know what's in the kitchen, so the
+// player has to have the ingredients.
+export function chooseOrder(
+  customer: CustomerType,
+  menu: DishId[],
+  rng: Rng,
+  hot?: DishId,
+): { dish: DishId; favorite: boolean } | null {
   if (menu.length === 0) return null
-  const favorites = customer.favorites.filter((d) => menu.includes(d))
+  const favorites = [...customer.favorites, ...(hot ? [hot] : [])].filter((d) => menu.includes(d))
   if (favorites.length > 0) return { dish: pick(favorites, rng), favorite: true }
   return { dish: pick(menu, rng), favorite: false }
 }
@@ -354,9 +389,51 @@ export function cookDish(state: GameState, dishId: DishId): GameState {
   return { ...state, inventory: consume(state.inventory, dishId) }
 }
 
+// ---------- countries ----------
+
+// Each country has one dish of the day, from its own cuisine or one it's crazy about
+export function hotDish(country: CountryId, day: number): DishId {
+  const cuisines = [country, ...COUNTRIES[country].craze]
+  const options = DISH_IDS.filter((d) => cuisines.includes(DISHES[d].cuisine))
+  return pick(options, seededRng(day * 31 + COUNTRY_IDS.indexOf(country) * 997))
+}
+
+export function dishPrice(dishId: DishId, country: CountryId, day: number): number {
+  const c = COUNTRIES[country]
+  let price = DISHES[dishId].price * c.priceMult
+  if (c.craze.includes(DISHES[dishId].cuisine)) price *= CRAZE_BONUS
+  if (hotDish(country, day) === dishId) price *= HOT_BONUS
+  return Math.round(price)
+}
+
+export function priceHere(state: Pick<GameState, "country" | "day">, dishId: DishId): number {
+  return dishPrice(dishId, state.country, state.day)
+}
+
+export function canTravel(state: GameState, country: CountryId): boolean {
+  const c = COUNTRIES[country]
+  return (
+    state.phase === "prep" && country !== state.country && state.level >= c.unlockLevel && state.credits >= c.travelCost
+  )
+}
+
+// Moving the stall happens during the day and you open there tonight. The pantry
+// comes along, so ingredients bought abroad can be sold anywhere.
+export function travel(state: GameState, country: CountryId): GameState {
+  const c = COUNTRIES[country]
+  if (state.phase !== "prep" || country === state.country) return state
+  if (state.level < c.unlockLevel) return addLog(state, "system", `要先把店升級成「${STORE_LEVELS[c.unlockLevel].name}」才能去${c.name}。`)
+  if (state.credits < c.travelCost) return addLog(state, "system", `去${c.name}的運費要 ${c.travelCost} 信用點。`)
+  return addLog(
+    { ...state, country, credits: state.credits - c.travelCost },
+    "travel",
+    `>> 餐車搬到了${c.name}${c.travelCost > 0 ? `，運費 ${c.travelCost} 信用點` : ""}。今天的招牌是 [${DISHES[hotDish(country, state.day)].name}]。`,
+  )
+}
+
 // patience: share of the customer's patience left when served (0..1)
-export function tipFor(customer: CustomerType, dishId: DishId, favorite: boolean, patience: number): number {
-  return Math.round(DISHES[dishId].price * customer.tipRate * (favorite ? 1 : 0.5) * (0.5 + patience))
+export function tipFor(customer: CustomerType, price: number, favorite: boolean, patience: number): number {
+  return Math.round(price * customer.tipRate * (favorite ? 1 : 0.5) * (0.5 + patience))
 }
 
 export function serveCustomer(
@@ -366,10 +443,11 @@ export function serveCustomer(
   favorite: boolean,
   patience: number,
 ): GameState {
-  const price = DISHES[dishId].price
-  const tip = tipFor(customer, dishId, favorite, patience)
+  const price = priceHere(state, dishId)
+  const tip = tipFor(customer, price, favorite, patience)
   const rep = favorite ? 2 : 1
-  let next: GameState = { ...state, credits: state.credits + price + tip, reputation: state.reputation + rep }
+  const sales = { ...state.sales, [state.country]: (state.sales[state.country] ?? 0) + price + tip }
+  let next: GameState = { ...state, credits: state.credits + price + tip, reputation: state.reputation + rep, sales }
   next = addLog(
     next,
     "sale",
@@ -550,7 +628,7 @@ export function nextDay(state: GameState): GameState {
   return addLog(
     next,
     "system",
-    `>> 第 ${next.day} 天。今天的 ${free} 次免費抽取已補滿。` +
+    `>> 第 ${next.day} 天。今天的 ${free} 次免費抽取已補滿，${COUNTRIES[next.country].name}今天的招牌是 [${DISHES[hotDish(next.country, next.day)].name}]。` +
       (next.day % GAME_RULES.rentEvery === 1 ? `這週房租 ${upcoming.amount} 信用點，${upcoming.inDays} 天後打烊時繳。` : ""),
   )
 }
@@ -563,18 +641,22 @@ export function loadGame(raw: string | null, now: number): GameState {
   if (!raw) return newGame(now)
   try {
     const parsed = JSON.parse(raw) as Omit<Partial<GameState>, "version"> & { version: number; won?: unknown }
-    if (parsed.version !== 1 && parsed.version !== 2) return newGame(now)
+    if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) return newGame(now)
     // v1 was a fixed 7-day run; a finished one starts over, an unfinished one keeps going
     if (parsed.version === 1 && parsed.phase === "gameover") return newGame(now)
     const { won: _won, ...rest } = parsed
+    const inventory = { ...emptyInventory(), ...parsed.inventory }
     let state = {
       lastDraw: null,
       tables: DEFAULT_TABLES,
       level: 0,
       best: { days: 0, level: 0 },
+      country: "taipei",
+      sales: {},
+      discovered: INGREDIENT_IDS.filter((id) => inventory[id] > 0),
       ...rest,
-      version: 2,
-      inventory: { ...emptyInventory(), ...parsed.inventory },
+      version: 3,
+      inventory,
     } as GameState
     // The page was closed mid-shift: the night is over
     if (state.phase === "serving") {

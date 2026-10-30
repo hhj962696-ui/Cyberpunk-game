@@ -1,0 +1,13 @@
+name = "neon-night-market-leaderboard"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Fill in database_id after `npx wrangler d1 create neon-leaderboard`
+[[d1_databases]]
+binding = "DB"
+database_name = "neon-leaderboard"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+
+[vars]
+# Comma-separated origins allowed to call the API, or * for any
+ALLOWED_ORIGINS = "*"

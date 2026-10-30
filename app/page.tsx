@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { GraduationCap, ScrollText, Store, Utensils, UtensilsCrossed, Volume2, VolumeX } from "lucide-react"
+import { BookOpen, Globe2, GraduationCap, ScrollText, Store, Trophy, Utensils, UtensilsCrossed, Volume2, VolumeX } from "lucide-react"
 import { StatsPanel } from "@/components/game/stats-panel"
 import { NightLog } from "@/components/game/night-log"
 import { MenuBoard } from "@/components/game/menu-board"
@@ -10,16 +10,24 @@ import { ActionPanel } from "@/components/game/action-panel"
 import { NightShift } from "@/components/game/night-shift"
 import { DrawReveal } from "@/components/game/draw-reveal"
 import { Tutorial, TUTORIAL_KEY } from "@/components/game/tutorial"
+import { WorldMap } from "@/components/game/world-map"
+import { Codex } from "@/components/game/codex"
+import { Leaderboard } from "@/components/game/leaderboard"
 import { useGame } from "@/hooks/use-game"
 import { useGameSounds } from "@/hooks/use-game-sounds"
-import { buyFromVendor, draw, nextDay, resolveEvent, startShift, storeLevel, toggleMenu, upgradeStore } from "@/lib/game/engine"
+import { useLeaderboard } from "@/hooks/use-leaderboard"
+import { COUNTRIES } from "@/lib/game/data"
+import { buyFromVendor, draw, nextDay, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
 
-type Tab = "floor" | "menu" | "vendor" | "log"
+type Tab = "floor" | "menu" | "vendor" | "world" | "codex" | "rank" | "log"
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "floor", label: "餐廳", icon: <Utensils className="w-4 h-4" /> },
   { id: "menu", label: "菜單", icon: <UtensilsCrossed className="w-4 h-4" /> },
   { id: "vendor", label: "攤販", icon: <Store className="w-4 h-4" /> },
+  { id: "world", label: "地區", icon: <Globe2 className="w-4 h-4" /> },
+  { id: "codex", label: "圖鑑", icon: <BookOpen className="w-4 h-4" /> },
+  { id: "rank", label: "排行", icon: <Trophy className="w-4 h-4" /> },
   { id: "log", label: "日誌", icon: <ScrollText className="w-4 h-4" /> },
 ]
 
@@ -27,6 +35,7 @@ export default function GamePage() {
   const { state, now, act, reset } = useGame()
   const [tab, setTab] = useState<Tab>("floor")
   const { muted, toggleMute } = useGameSounds(state)
+  const { player, rename } = useLeaderboard(state)
   const [tutorial, setTutorial] = useState(false)
   const loaded = state !== null
   const eventId = state?.pendingEvent?.id
@@ -79,12 +88,16 @@ export default function GamePage() {
               NEON<span className="text-neon-green">_</span>NIGHT<span className="text-neon-purple">_</span>MARKET
             </h1>
           </div>
-          <span className="text-xs text-muted-foreground border border-border px-2 py-1 rounded-sm">霓虹夜市 v0.2</span>
+          <span className="text-xs text-muted-foreground border border-border px-2 py-1 rounded-sm">霓虹夜市 v0.3</span>
         </div>
-        <div className="flex items-center gap-6 text-xs">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">DAY:</span>
             <span className="text-neon-green font-mono">{String(state.day).padStart(2, "0")}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">AT:</span>
+            <span className="text-neon-pink">{COUNTRIES[state.country].name}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">LV:</span>
@@ -128,12 +141,12 @@ export default function GamePage() {
         </aside>
 
         <section className="border border-border rounded-sm overflow-hidden order-1 lg:order-2 min-h-[480px] lg:min-h-0 flex flex-col bg-card">
-          <nav className="flex border-b border-border">
+          <nav className="flex border-b border-border overflow-x-auto">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs tracking-widest border-b-2 transition-all ${
+                className={`flex-1 shrink-0 flex items-center justify-center gap-1.5 px-2 py-3 text-xs tracking-widest whitespace-nowrap border-b-2 transition-all ${
                   tab === t.id
                     ? "border-neon-green text-neon-green bg-neon-green/5"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -153,6 +166,9 @@ export default function GamePage() {
             {tab === "log" && <NightLog state={state} onChoose={(c) => act((s) => resolveEvent(s, c, Math.random))} />}
             {tab === "menu" && <MenuBoard state={state} onToggle={(id) => act((s) => toggleMenu(s, id))} />}
             {tab === "vendor" && <VendorStall state={state} now={now} onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))} />}
+            {tab === "world" && <WorldMap state={state} onTravel={(c) => act((s) => travel(s, c))} />}
+            {tab === "codex" && <Codex state={state} />}
+            {tab === "rank" && <Leaderboard state={state} player={player} onRename={rename} />}
           </div>
         </section>
 

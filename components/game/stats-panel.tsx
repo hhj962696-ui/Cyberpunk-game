@@ -1,5 +1,5 @@
-import { Coins, Star, CalendarDays, Package, Store, Trophy } from "lucide-react"
-import { INGREDIENTS, INGREDIENT_IDS, RARITY_LABEL, STORE_LEVELS } from "@/lib/game/data"
+import { Coins, Star, CalendarDays, Globe2, Package, Store, Trophy } from "lucide-react"
+import { COUNTRIES, INGREDIENTS, INGREDIENT_IDS, RARITIES, RARITY_LABEL, STORE_LEVELS } from "@/lib/game/data"
 import { nextStoreLevel, rentDue, storeLevel, weekOf, type GameState } from "@/lib/game/engine"
 import { IngredientIcon } from "./food-icon"
 
@@ -8,11 +8,15 @@ export function StatsPanel({ state }: { state: GameState }) {
   const upgrade = nextStoreLevel(state)
   const rent = rentDue(state)
   const goal = upgrade ? Math.min(100, Math.round((state.credits / upgrade.cost) * 100)) : 100
+  // rarest first
+  const owned = INGREDIENT_IDS.filter((id) => state.inventory[id] > 0).sort(
+    (a, b) => RARITIES.indexOf(INGREDIENTS[b].rarity) - RARITIES.indexOf(INGREDIENTS[a].rarity),
+  )
   return (
     <div className="h-full flex flex-col overflow-y-auto">
       <div className="border-b border-border p-4">
         <div className="text-xs text-neon-green uppercase tracking-widest mb-1">
-          LV.{state.level + 1} // 下城巷弄
+          LV.{state.level + 1} // {COUNTRIES[state.country].name}
         </div>
         <h2 className="text-sm uppercase tracking-widest text-foreground">{level.name}</h2>
       </div>
@@ -20,6 +24,12 @@ export function StatsPanel({ state }: { state: GameState }) {
       <div className="p-4 space-y-3 border-b border-border">
         <Stat icon={<Coins className="w-4 h-4" />} label="信用點" value={state.credits} color="text-neon-gold" />
         <Stat icon={<Star className="w-4 h-4" />} label="聲望" value={state.reputation} color="text-neon-purple" />
+        <Stat
+          icon={<Globe2 className="w-4 h-4" />}
+          label={`${COUNTRIES[state.country].name}業績`}
+          value={state.sales[state.country] ?? 0}
+          color="text-neon-pink"
+        />
         <Stat
           icon={<CalendarDays className="w-4 h-4" />}
           label="天數"
@@ -69,13 +79,11 @@ export function StatsPanel({ state }: { state: GameState }) {
           <Package className="w-3 h-3" /> // 食材庫存
         </div>
         <ul className="grid grid-cols-2 gap-2">
-          {INGREDIENT_IDS.map((id) => {
+          {owned.length === 0 && <li className="col-span-2 text-xs text-muted-foreground">庫存空空的，去抽食材吧。</li>}
+          {owned.map((id) => {
             const count = state.inventory[id]
             return (
-              <li
-                key={id}
-                className={`flex items-center gap-2 p-2 rounded-sm border border-border bg-cyber-dark ${count === 0 ? "opacity-40" : ""}`}
-              >
+              <li key={id} className="flex items-center gap-2 p-2 rounded-sm border border-border bg-cyber-dark">
                 <IngredientIcon id={id} size={24} />
                 <div className="min-w-0">
                   <div className="text-xs text-foreground truncate">{INGREDIENTS[id].name}</div>

@@ -11,6 +11,7 @@ const LOG_SOUND: Partial<Record<LogType, () => void>> = {
   event: sfx.event,
   upgrade: sfx.upgrade,
   rent: sfx.rent,
+  travel: sfx.newDay,
 }
 
 // Plays sounds for what changed in the game state, so the engine stays free of side effects

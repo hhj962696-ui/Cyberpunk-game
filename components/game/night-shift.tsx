@@ -11,8 +11,10 @@ import {
   customerWalkout,
   DOOR,
   endShift,
+  hotDish,
   moveTable,
   pickCustomer,
+  priceHere,
   seatsOf,
   serveCustomer,
   shiftCustomerCount,
@@ -135,6 +137,7 @@ export function NightShift({ state, act }: Props) {
   const menuRef = useRef(state.menu)
   const invRef = useRef<Inventory>(state.inventory)
   const seatsRef = useRef(seatsOf(state.tables))
+  const hotRef = useRef(hotDish(state.country, state.day))
   const [, setFrame] = useState(0)
   const [decorating, setDecorating] = useState(false)
   const [selectedTable, setSelectedTable] = useState<number | null>(null)
@@ -143,6 +146,7 @@ export function NightShift({ state, act }: Props) {
   menuRef.current = state.menu
   invRef.current = state.inventory
   seatsRef.current = seatsOf(state.tables)
+  hotRef.current = hotDish(state.country, state.day)
 
   if (state.phase === "serving" && (!sceneRef.current || sceneRef.current.done)) {
     sceneRef.current = newScene(state)
@@ -164,7 +168,7 @@ export function NightShift({ state, act }: Props) {
         const taken = new Set(sc.guests.map((g) => g.seat))
         const free = seats.map((_, i) => i).filter((i) => !taken.has(i))
         const customer = pickCustomer(Math.random)
-        const order = chooseOrder(customer, menuRef.current, Math.random)
+        const order = chooseOrder(customer, menuRef.current, Math.random, hotRef.current)
         if (free.length > 0 && order) {
           const seat = free[Math.floor(Math.random() * free.length)]
           const maxPatience = (customer.id === "tycoon" ? 14_000 : 18_000) + Math.random() * 5000
@@ -272,7 +276,8 @@ export function NightShift({ state, act }: Props) {
       return
     }
     const ratio = guest.patience / guest.maxPatience
-    const earned = DISHES[guest.dish].price + tipFor(guest.customer, guest.dish, guest.favorite, ratio)
+    const price = priceHere(state, guest.dish)
+    const earned = price + tipFor(guest.customer, price, guest.favorite, ratio)
     sc.plates.splice(plateIndex, 1)
     sc.selected = null
     guest.phase = "out"
@@ -455,6 +460,7 @@ export function NightShift({ state, act }: Props) {
                     <div className="text-xs text-foreground truncate">{DISHES[dish].name}</div>
                     <div className={`text-[10px] ${count > 0 ? "text-neon-green" : "text-destructive"}`}>
                       {count > 0 ? `可做 ${count}` : "食材不足"}
+                      <span className="text-neon-gold font-mono"> ${priceHere(state, dish)}</span>
                     </div>
                   </div>
                 </button>
