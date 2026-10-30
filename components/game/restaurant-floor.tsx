@@ -142,10 +142,13 @@ export function RestaurantFloor({
   const drawables: Drawable[] = []
 
   // kitchen counter + stoves along the back wall
-  KITCHEN_TILES.filter((t) => t.y === 0).forEach((t, i) => {
+  // the back row is a counter plus stoves; extra burners replace the counter from the left
+  const backRow = KITCHEN_TILES.filter((t) => t.y === 0)
+  const firstStove = backRow.length - Math.min(burnersBusy.length, backRow.length)
+  backRow.forEach((t, i) => {
     const c = iso(t.x + 0.5, t.y + 0.5)
-    const stove = i > 0
-    const busy = stove && burnersBusy[i - 1]
+    const stove = i >= firstStove
+    const busy = stove && burnersBusy[i - firstStove]
     drawables.push({
       depth: t.x + t.y + 1,
       key: `k${i}`,

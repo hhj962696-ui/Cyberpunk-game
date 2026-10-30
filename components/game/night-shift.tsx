@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { ChefHat, Flame, Hammer, Moon, Trash2, Users } from "lucide-react"
 import { DISHES, type CustomerType, type DishId } from "@/lib/game/data"
+import { sfx } from "@/lib/game/sound"
 import {
   chooseOrder,
   cookDish,
@@ -16,6 +17,7 @@ import {
   serveCustomer,
   shiftCustomerCount,
   startShift,
+  storeLevel,
   tipFor,
   type GameState,
   type Inventory,
@@ -28,9 +30,7 @@ import { RestaurantFloor, type FloorFloat, type FloorGuest } from "./restaurant-
 const SHIFT_MS = 75_000
 const LAST_ARRIVAL_MS = SHIFT_MS - 10_000
 const WALK_SPEED = 3 / 1000 // tiles per ms
-const BURNERS = 2
 const COUNTER_SIZE = 4
-const COOK_MS = 2000
 const TICK_MS = 100
 const WRONG_DISH_PENALTY_MS = 3000
 
@@ -96,6 +96,7 @@ interface Scene {
   nextSpawnAt: number
   guests: Guest[]
   burners: ({ dish: DishId; left: number } | null)[]
+  cookMs: number
   plates: { key: number; dish: DishId }[]
   selected: number | null
   floats: Float[]
@@ -104,15 +105,17 @@ interface Scene {
   done: boolean
 }
 
-function newScene(reputation: number): Scene {
-  const total = shiftCustomerCount(reputation, Math.random)
+function newScene(state: GameState): Scene {
+  const total = shiftCustomerCount(state.reputation, state.level, Math.random)
+  const level = storeLevel(state)
   return {
     elapsed: 0,
     totalGuests: total,
     toSpawn: total,
     nextSpawnAt: 800,
     guests: [],
-    burners: Array(BURNERS).fill(null),
+    burners: Array(level.burners).fill(null),
+    cookMs: level.cookMs,
     plates: [],
     selected: null,
     floats: [],
@@ -142,7 +145,7 @@ export function NightShift({ state, act }: Props) {
   seatsRef.current = seatsOf(state.tables)
 
   if (state.phase === "serving" && (!sceneRef.current || sceneRef.current.done)) {
-    sceneRef.current = newScene(state.reputation)
+    sceneRef.current = newScene(state)
   }
 
   const serving = state.phase === "serving"
@@ -213,6 +216,7 @@ export function NightShift({ state, act }: Props) {
         if (b.left === 0 && sc.plates.length < COUNTER_SIZE) {
           sc.plates.push({ key: sc.nextKey++, dish: b.dish })
           sc.burners[i] = null
+          sfx.plateReady()
         }
       })
 
@@ -244,7 +248,8 @@ export function NightShift({ state, act }: Props) {
     const inv = { ...invRef.current }
     for (const [id, need] of Object.entries(DISHES[dish].recipe)) inv[id as keyof Inventory] -= need as number
     invRef.current = inv
-    sc.burners[burner] = { dish, left: COOK_MS }
+    sc.burners[burner] = { dish, left: sc.cookMs }
+    sfx.cook()
     act((s) => cookDish(s, dish))
     setFrame((f) => f + 1)
   }
@@ -261,6 +266,7 @@ export function NightShift({ state, act }: Props) {
     if (plate.dish !== guest.dish) {
       guest.patience = Math.max(500, guest.patience - WRONG_DISH_PENALTY_MS)
       sc.floats.push({ key: sc.nextKey++, u: at.u, v: at.v, text: "這不是我點的！", good: false, until: sc.elapsed + 1400 })
+      sfx.wrong()
       sc.selected = null
       setFrame((f) => f + 1)
       return
@@ -281,6 +287,7 @@ export function NightShift({ state, act }: Props) {
   const selectPlate = (key: number) => {
     if (!sc) return
     sc.selected = sc.selected === key ? null : key
+    sfx.click()
     setFrame((f) => f + 1)
   }
 
@@ -309,18 +316,19 @@ export function NightShift({ state, act }: Props) {
         })
       : []
 
+  const burnerCount = serving && sc ? sc.burners.length : storeLevel(state).burners
   const timeLeft = sc && serving ? Math.max(0, SHIFT_MS - sc.elapsed) : SHIFT_MS
 
   return (
     <div className="h-full flex flex-col overflow-y-auto">
       {/* Restaurant */}
-      <div className="relative shrink-0 border-b border-border bg-cyber-dark">
+      <div className="relative shrink-0 border-b border-border bg-cyber-dark" data-tut="floor">
         <div className="aspect-[3/2] sm:aspect-auto sm:h-[46vh] sm:min-h-64 max-h-[560px]">
           <RestaurantFloor
             tables={state.tables}
             guests={guestsForFloor}
             floats={serving && sc ? sc.floats : []}
-            burnersBusy={serving && sc ? sc.burners.map(Boolean) : [false, false]}
+            burnersBusy={serving && sc ? sc.burners.map(Boolean) : Array(storeLevel(state).burners).fill(false)}
             decorating={decorating && !serving}
             selectedTable={selectedTable}
             onTableClick={(i) => setSelectedTable(selectedTable === i ? null : i)}
@@ -403,8 +411,8 @@ export function NightShift({ state, act }: Props) {
           <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
             <Flame className="w-3 h-3" /> // 爐台
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {Array.from({ length: BURNERS }).map((_, i) => {
+          <div className={`grid gap-2 ${burnerCount > 2 ? "grid-cols-3" : "grid-cols-2"}`}>
+            {Array.from({ length: burnerCount }).map((_, i) => {
               const b = serving ? sc?.burners[i] : null
               return (
                 <div key={i} className="h-12 rounded-sm border border-border bg-cyber-dark flex items-center gap-2 px-3">
@@ -414,7 +422,7 @@ export function NightShift({ state, act }: Props) {
                       <div className="flex-1">
                         <div className="text-xs text-foreground">{b.left > 0 ? "料理中…" : "出餐台滿了"}</div>
                         <div className="h-1 bg-muted rounded-sm overflow-hidden mt-1">
-                          <div className="h-full bg-neon-gold" style={{ width: `${(1 - b.left / COOK_MS) * 100}%` }} />
+                          <div className="h-full bg-neon-gold" style={{ width: `${(1 - b.left / (sc?.cookMs ?? 1)) * 100}%` }} />
                         </div>
                       </div>
                     </>
@@ -431,7 +439,7 @@ export function NightShift({ state, act }: Props) {
           <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
             <ChefHat className="w-3 h-3" /> // 點菜色開始料理（用掉配方食材）
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-tut="cook">
             {state.menu.map((dish) => {
               const count = craftableCount(state.inventory, dish)
               const busy = !sc || sc.burners.every((b) => b !== null)
@@ -499,7 +507,7 @@ function IdleOverlay({
       </>
     )
   } else {
-    message = "遊戲結束"
+    message = "房租繳不出來，店被收回了。按「重新開始」再挑戰"
   }
   return (
     <div className="absolute top-2 left-2 right-2 flex flex-wrap items-center justify-between gap-2">
@@ -518,6 +526,7 @@ function IdleOverlay({
         {state.phase === "prep" && !decorating && (
           <button
             onClick={onOpen}
+            data-tut="open"
             disabled={state.menu.length === 0}
             className="text-xs px-4 py-1.5 rounded-sm border-2 border-neon-purple text-neon-purple bg-neon-purple/15 hover:bg-neon-purple/30 hover:shadow-[0_0_16px_var(--neon-purple)] transition-all tracking-widest disabled:opacity-40"
           >

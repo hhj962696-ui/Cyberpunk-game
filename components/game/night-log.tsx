@@ -11,6 +11,8 @@ const LOG_STYLE: Record<LogEntry["type"], string> = {
   miss: "text-destructive",
   event: "text-neon-gold",
   result: "text-neon-purple font-bold",
+  upgrade: "text-neon-gold font-bold",
+  rent: "text-muted-foreground",
 }
 
 export function NightLog({ state, onChoose }: { state: GameState; onChoose: (choice: number) => void }) {
