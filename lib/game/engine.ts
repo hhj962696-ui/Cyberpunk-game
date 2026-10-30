@@ -79,6 +79,10 @@ export interface GameState {
   stageBonus: { week: number; credits: number; doubled: boolean } | null
   vendorSlot: number
   vendorBought: number[]
+  // staples bought since the shop last restocked
+  stapleBought: Partial<Record<IngredientId, number>>
+  // branches opened in each country; they bring guests when the stall is there
+  branches: Partial<Record<CountryId, number>>
   pendingEvent: PendingEvent | null
   log: LogEntry[]
   nextLogId: number
@@ -144,6 +148,8 @@ export function newGame(now: number, best: RunRecord = { days: 0, level: 0 }): G
     stageBonus: null,
     vendorSlot: vendorSlotAt(now),
     vendorBought: [],
+    stapleBought: {},
+    branches: {},
     pendingEvent: null,
     log: [],
     nextLogId: 1,
@@ -311,7 +317,7 @@ export interface VendorOffer {
   stock: number
 }
 
-// Small deterministic PRNG so every player sees the same stall for a 12-hour window
+// Small deterministic PRNG so every player sees the same shop until it restocks
 export function seededRng(seed: number): Rng {
   let a = seed >>> 0
   return () => {
@@ -342,11 +348,11 @@ export function vendorOffers(slot: number, country: CountryId): VendorOffer[] {
   return offers
 }
 
-// Reset what was bought once the 12-hour window rolls over
+// Restock: what was bought resets every time the shop's window rolls over
 export function syncVendor(state: GameState, now: number): GameState {
   const slot = vendorSlotAt(now)
   if (slot === state.vendorSlot) return state
-  return { ...state, vendorSlot: slot, vendorBought: [] }
+  return { ...state, vendorSlot: slot, vendorBought: [], stapleBought: {} }
 }
 
 export function buyFromVendor(state: GameState, offerIndex: number, now: number): GameState {
@@ -368,19 +374,94 @@ export function buyFromVendor(state: GameState, offerIndex: number, now: number)
   return addLog(next, "draw", `向攤販買了 [${INGREDIENTS[offer.ingredient].name}]，花費 ${offer.price} 信用點`)
 }
 
-// The staple shelf always has the country's 大宗 ingredients
-export function stapleShelf(country: CountryId): IngredientId[] {
-  return COUNTRIES[country].pool.filter((id) => INGREDIENTS[id].rarity === "common")
+export interface StapleOffer {
+  ingredient: IngredientId
+  stock: number
 }
 
-export function buyStaple(state: GameState, id: IngredientId): GameState {
-  if (state.phase !== "prep" || !stapleShelf(state.country).includes(id)) return state
-  if (state.credits < GAME_RULES.staplePrice) return addLog(state, "system", "信用點不足。")
-  return {
-    ...discover(state, id),
-    credits: state.credits - GAME_RULES.staplePrice,
-    inventory: { ...state.inventory, [id]: state.inventory[id] + 1 },
+// The staple shelf carries some of the country's 大宗 ingredients in limited amounts.
+// Which ones, and how many, change with every restock.
+export function stapleShelf(slot: number, country: CountryId): StapleOffer[] {
+  const rng = seededRng(slot * 4241 + 3 + COUNTRY_IDS.indexOf(country) * 65537)
+  const commons = COUNTRIES[country].pool.filter((id) => INGREDIENTS[id].rarity === "common")
+  const shuffled = [...commons]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
   }
+  const min = Math.min(commons.length, GAME_RULES.stapleMinKinds)
+  const count = min + Math.floor(rng() * (commons.length - min + 1))
+  return shuffled.slice(0, count).map((ingredient) => ({
+    ingredient,
+    stock: GAME_RULES.stapleStock[0] + Math.floor(rng() * (GAME_RULES.stapleStock[1] - GAME_RULES.stapleStock[0] + 1)),
+  }))
+}
+
+export function stapleLeft(state: GameState, offer: StapleOffer): number {
+  return offer.stock - (state.stapleBought[offer.ingredient] ?? 0)
+}
+
+export function buyStaple(state: GameState, id: IngredientId, now: number): GameState {
+  const next = syncVendor(state, now)
+  if (next.phase !== "prep") return next
+  const offer = stapleShelf(next.vendorSlot, next.country).find((o) => o.ingredient === id)
+  if (!offer) return next
+  if (stapleLeft(next, offer) <= 0) return addLog(next, "system", `[${INGREDIENTS[id].name}] 賣完了，等下一批補貨。`)
+  if (next.credits < GAME_RULES.staplePrice) return addLog(next, "system", "信用點不足。")
+  return {
+    ...discover(next, id),
+    credits: next.credits - GAME_RULES.staplePrice,
+    stapleBought: { ...next.stapleBought, [id]: (next.stapleBought[id] ?? 0) + 1 },
+    inventory: { ...next.inventory, [id]: next.inventory[id] + 1 },
+  }
+}
+
+// ---------- branches ----------
+
+export function branchesIn(state: Pick<GameState, "branches">, country: CountryId): number {
+  return state.branches[country] ?? 0
+}
+
+// Each extra branch in a country costs more, and pricier places cost more to open in
+export function branchCost(state: Pick<GameState, "branches">, country: CountryId): number | null {
+  const n = branchesIn(state, country)
+  if (n >= GAME_RULES.maxBranches) return null
+  return Math.round((GAME_RULES.branchBaseCost * (n + 1) * COUNTRIES[country].priceMult) / 10) * 10
+}
+
+export function canOpenBranch(state: GameState, country: CountryId): boolean {
+  const cost = branchCost(state, country)
+  return (
+    cost !== null &&
+    state.phase !== "serving" &&
+    state.phase !== "gameover" &&
+    state.level >= COUNTRIES[country].unlockLevel &&
+    state.credits >= cost
+  )
+}
+
+export function openBranch(state: GameState, country: CountryId): GameState {
+  const cost = branchCost(state, country)
+  if (!canOpenBranch(state, country) || cost === null) return state
+  const n = branchesIn(state, country) + 1
+  return addLog(
+    { ...state, credits: state.credits - cost, branches: { ...state.branches, [country]: n } },
+    "upgrade",
+    `>> 在${COUNTRIES[country].name}開了第 ${n} 家分店，花費 ${cost} 信用點。在這裡營業時每晚多 ${GAME_RULES.branchGuests} 位客人。`,
+  )
+}
+
+// Guests per night are capped by the seats, so a busy place never gets more than you can serve
+export function maxGuests(state: Pick<GameState, "tables">): number {
+  return seatsOf(state.tables).length * GAME_RULES.guestsPerSeat
+}
+
+export function shiftGuestTotal(state: GameState, rng: Rng): number {
+  const total =
+    shiftCustomerCount(state.reputation, state.level, rng) +
+    currentStage(state).extraGuests +
+    branchesIn(state, state.country) * GAME_RULES.branchGuests
+  return Math.min(total, maxGuests(state))
 }
 
 // Ingredients a player can get by watching an ad: anything not rarer than 特產 here
@@ -821,6 +902,8 @@ export function loadGame(raw: string | null, now: number): GameState {
       sales: {},
       discovered: INGREDIENT_IDS.filter((id) => inventory[id] > 0),
       adClaims: 0,
+      stapleBought: {},
+      branches: {},
       ...rest,
       version: 3,
       inventory,

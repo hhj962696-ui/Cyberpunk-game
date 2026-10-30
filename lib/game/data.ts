@@ -18,7 +18,7 @@ export const RARITY_LABEL: Record<Rarity, string> = {
 }
 
 export const RARITY_HINT: Record<Rarity, string> = {
-  common: "到處都抽得到，攤販天天有貨，一次抽到 4 份。",
+  common: "到處都抽得到，商店常常補貨，一次抽到 4 份。",
   uncommon: "天然食材，大部分地區都有，一次抽到 3 份。",
   rare: "地區特產，只有在產地抽得到或買得到，一次 2 份。",
   epic: "抽中機率只有 4%，攤販偶爾進一份，只在產地出現。",
@@ -391,8 +391,11 @@ export const GAME_RULES = {
   startCredits: 200,
   // share of draws that land on something the menu needs (only easy ingredients)
   menuDrawChance: 0.6,
-  // the staple shelf: a country's 大宗 ingredients, always in stock at this price
+  // the staple shelf: some of a country's 大宗 ingredients at this price, in limited
+  // amounts (at least stapleMinKinds kinds, stapleStock[0]..[1] of each) per restock
   staplePrice: 8,
+  stapleMinKinds: 4,
+  stapleStock: [3, 8] as [number, number],
   // ingredient packs a player can get by watching an ad, per day
   adIngredientsPerDay: 3,
   adIngredientAmount: 3,
@@ -400,7 +403,14 @@ export const GAME_RULES = {
   rentEvery: 7,
   adDrawsPerDay: 2,
   adCoinsPerDay: 3,
-  vendorRefreshMs: 12 * 60 * 60 * 1000,
+  // the shop restocks with a new random selection this often
+  vendorRefreshMs: 3 * 60 * 1000,
+  // branches (展店): per country, each brings more guests when the stall is there
+  maxBranches: 3,
+  branchBaseCost: 400,
+  branchGuests: 2,
+  // guests per night never exceed seats × this
+  guestsPerSeat: 2,
   vendorOfferCount: 4,
 }
 

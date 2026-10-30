@@ -19,7 +19,7 @@ import { useGameSounds } from "@/hooks/use-game-sounds"
 import { useLeaderboard } from "@/hooks/use-leaderboard"
 import { useRewardedAd } from "@/hooks/use-rewarded-ad"
 import { COUNTRIES } from "@/lib/game/data"
-import { adCoins, adDraw, buyFromVendor, buyStaple, claimAdIngredient, currentStage, weekOf, doubleStageBonus, draw, nextDay, noteAdUnavailable, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
+import { adCoins, adDraw, buyFromVendor, buyStaple, claimAdIngredient, currentStage, weekOf, doubleStageBonus, draw, nextDay, noteAdUnavailable, openBranch, resolveEvent, startShift, storeLevel, toggleMenu, travel, upgradeStore } from "@/lib/game/engine"
 
 type Tab = "floor" | "stage" | "menu" | "vendor" | "world" | "codex" | "rank" | "log"
 
@@ -180,7 +180,7 @@ export default function GamePage() {
                 state={state}
                 now={now}
                 onBuy={(i) => act((s) => buyFromVendor(s, i, Date.now()))}
-                onBuyStaple={(id) => act((s) => buyStaple(s, id))}
+                onBuyStaple={(id) => act((s) => buyStaple(s, id, Date.now()))}
                 onWatchAd={async () => {
                   const rewarded = await ad.show()
                   if (!rewarded) act(noteAdUnavailable)
@@ -189,7 +189,7 @@ export default function GamePage() {
                 onAdReward={(id) => act((s) => claimAdIngredient(s, id))}
               />
             )}
-            {tab === "world" && <WorldMap state={state} onTravel={(c) => act((s) => travel(s, c))} />}
+            {tab === "world" && <WorldMap state={state} onTravel={(c) => act((s) => travel(s, c))} onOpenBranch={(c) => act((s) => openBranch(s, c))} />}
             {tab === "stage" && <StageMap state={state} />}
             {tab === "codex" && <Codex state={state} />}
             {tab === "rank" && <Leaderboard state={state} player={player} onRename={rename} />}

@@ -20,7 +20,7 @@ import {
   priceHere,
   seatsOf,
   serveCustomer,
-  shiftCustomerCount,
+  shiftGuestTotal,
   startShift,
   storeLevel,
   tipFor,
@@ -117,7 +117,7 @@ interface Scene {
 
 function newScene(state: GameState): Scene {
   const stage = currentStage(state)
-  const total = shiftCustomerCount(state.reputation, state.level, Math.random) + stage.extraGuests
+  const total = shiftGuestTotal(state, Math.random)
   const level = storeLevel(state)
   return {
     patienceMult: stage.patienceMult,

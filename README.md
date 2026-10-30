@@ -26,6 +26,12 @@ Settings → Pages → Build and deployment，把 Source 選成「GitHub Actions
 各地區業績排行榜需要一個小後端，程式在 `leaderboard-worker/`，部署步驟見那裡的 README。
 部署後用 `NEXT_PUBLIC_LEADERBOARD_URL=<網址> pnpm build` 打包；沒設定時遊戲會用本機排行榜。
 
+## 商店與展店
+
+- 食材商店每 3 分鐘（真實時間）補一次貨，每次上架哪些基本食材、各有幾份都是隨機的，賣完就要等下一批。黑市特產也跟著一起換。
+- 每個解鎖的地區最多可以開 3 家分店。在有分店的地區營業時，每家分店每晚多 2 位客人；不過每晚客人總數最多是座位數的 2 倍，不會多到做不完。
+- 數值都在 `lib/game/data.ts` 的 `GAME_RULES`。
+
 ## 看廣告換獎勵（Rewarded ads）
 
 The game shows rewarded ads through `lib/ads/rewarded-ads.ts`, which wraps the CrazyGames and Poki HTML5 SDKs behind one interface. Rewards (there are no real-money purchases):
