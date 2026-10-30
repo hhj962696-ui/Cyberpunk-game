@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ChefHat, Flame, Hammer, Moon, Trash2, Users } from "lucide-react"
+import { ChefHat, Flame, Hammer, Moon, Trash2, Tv, Users } from "lucide-react"
 import { DISHES, type CustomerType, type DishId } from "@/lib/game/data"
 import { sfx } from "@/lib/game/sound"
 import {
@@ -13,6 +13,7 @@ import {
   endShift,
   hotDish,
   moveTable,
+  noteAdUnavailable,
   pickCustomer,
   priceHere,
   seatsOf,
@@ -26,6 +27,7 @@ import {
   type ShiftSummary,
   type Tile,
 } from "@/lib/game/engine"
+import type { RewardedAd } from "@/hooks/use-rewarded-ad"
 import { DishIcon } from "./food-icon"
 import { RestaurantFloor, type FloorFloat, type FloorGuest } from "./restaurant-floor"
 
@@ -105,6 +107,7 @@ interface Scene {
   summary: ShiftSummary
   nextKey: number
   done: boolean
+  refillUsed: boolean
 }
 
 function newScene(state: GameState): Scene {
@@ -124,15 +127,17 @@ function newScene(state: GameState): Scene {
     summary: { guests: 0, served: 0, lost: 0, income: 0, wasted: 0 },
     nextKey: 1,
     done: false,
+    refillUsed: false,
   }
 }
 
 interface Props {
   state: GameState
   act: (fn: (s: GameState) => GameState) => void
+  ad: RewardedAd
 }
 
-export function NightShift({ state, act }: Props) {
+export function NightShift({ state, act, ad }: Props) {
   const sceneRef = useRef<Scene | null>(null)
   const menuRef = useRef(state.menu)
   const invRef = useRef<Inventory>(state.inventory)
@@ -147,18 +152,28 @@ export function NightShift({ state, act }: Props) {
   invRef.current = state.inventory
   seatsRef.current = seatsOf(state.tables)
   hotRef.current = hotDish(state.country, state.day)
+  // the shift clock stops while an ad is on screen
+  const adPlayingRef = useRef(ad.playing)
+  adPlayingRef.current = ad.playing
 
   if (state.phase === "serving" && (!sceneRef.current || sceneRef.current.done)) {
     sceneRef.current = newScene(state)
   }
 
   const serving = state.phase === "serving"
+  const { gameplayStart, gameplayStop } = ad
+
+  useEffect(() => {
+    if (!serving) return
+    gameplayStart()
+    return gameplayStop
+  }, [serving, gameplayStart, gameplayStop])
 
   useEffect(() => {
     if (!serving) return
     const timer = setInterval(() => {
       const sc = sceneRef.current
-      if (!sc || sc.done) return
+      if (!sc || sc.done || adPlayingRef.current) return
       sc.elapsed += TICK_MS
       const now = sc.elapsed
 
@@ -289,6 +304,26 @@ export function NightShift({ state, act }: Props) {
     setFrame((f) => f + 1)
   }
 
+  // Reward for watching an ad: every customer in the room gets their full patience back, once per shift
+  const refillPatience = async () => {
+    if (!sc || sc.done || sc.refillUsed) return
+    const shift = sc
+    const rewarded = await ad.show()
+    if (shift.done) return
+    if (!rewarded) {
+      act(noteAdUnavailable)
+      return
+    }
+    shift.refillUsed = true
+    for (const g of shift.guests) {
+      if (g.phase === "out") continue
+      g.patience = g.maxPatience
+      if (g.mood === "angry") g.mood = "ok"
+    }
+    shift.floats.push({ key: shift.nextKey++, u: DOOR.x + 1, v: DOOR.y, text: "全場耐心補滿！", good: true, until: shift.elapsed + 1600 })
+    setFrame((f) => f + 1)
+  }
+
   const selectPlate = (key: number) => {
     if (!sc) return
     sc.selected = sc.selected === key ? null : key
@@ -356,6 +391,16 @@ export function NightShift({ state, act }: Props) {
               <Users className="w-3 h-3" />
               {sc.toSpawn}
             </span>
+            {!sc.refillUsed && (
+              <button
+                onClick={refillPatience}
+                disabled={ad.playing || !sc.guests.some((g) => g.phase === "seated")}
+                className="flex items-center gap-1 px-2 py-1 rounded-sm border border-neon-gold/70 text-neon-gold bg-card/85 hover:bg-neon-gold/15 hover:shadow-[0_0_12px_var(--neon-gold)] transition-all disabled:opacity-40 disabled:hover:shadow-none"
+              >
+                <Tv className="w-3 h-3" />
+                {ad.playing ? "廣告中…" : "看廣告補滿耐心"}
+              </button>
+            )}
           </div>
         ) : (
           <IdleOverlay

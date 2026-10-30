@@ -64,6 +64,7 @@ export interface GameState {
   inventory: Inventory
   menu: DishId[]
   freeDrawsLeft: number
+  adDrawsLeft: number
   vendorSlot: number
   vendorBought: number[]
   pendingEvent: PendingEvent | null
@@ -122,6 +123,7 @@ export function newGame(now: number, best: RunRecord = { days: 0, level: 0 }): G
     inventory,
     menu: ["ramen", "battery"],
     freeDrawsLeft: STORE_LEVELS[0].freeDraws,
+    adDrawsLeft: GAME_RULES.adDrawsPerDay,
     vendorSlot: vendorSlotAt(now),
     vendorBought: [],
     pendingEvent: null,
@@ -202,22 +204,34 @@ function discover(state: GameState, id: IngredientId): GameState {
 
 export function draw(state: GameState, rng: Rng): GameState {
   if (state.phase !== "prep") return state
-  let next = state
   if (state.freeDrawsLeft > 0) {
-    next = { ...next, freeDrawsLeft: next.freeDrawsLeft - 1 }
-  } else if (state.credits >= GAME_RULES.extraDrawCost) {
-    next = { ...next, credits: next.credits - GAME_RULES.extraDrawCost }
-  } else {
-    return addLog(state, "system", "信用點不足，無法加抽。")
+    return drawInto({ ...state, freeDrawsLeft: state.freeDrawsLeft - 1 }, rng)
   }
+  if (state.credits >= GAME_RULES.extraDrawCost) {
+    return drawInto({ ...state, credits: state.credits - GAME_RULES.extraDrawCost }, rng)
+  }
+  return addLog(state, "system", "信用點不足，無法加抽。")
+}
+
+// Reward for watching an ad: one free draw, a few times per day
+export function adDraw(state: GameState, rng: Rng): GameState {
+  if (state.phase !== "prep" || state.adDrawsLeft <= 0) return state
+  return drawInto({ ...state, adDrawsLeft: state.adDrawsLeft - 1 }, rng)
+}
+
+export function noteAdUnavailable(state: GameState): GameState {
+  return addLog(state, "system", "廣告沒有播完，這次沒有獎勵。")
+}
+
+function drawInto(state: GameState, rng: Rng): GameState {
   const id = drawIngredient(rng, COUNTRIES[state.country].pool)
   const ing = INGREDIENTS[id]
   const amount = DRAW_PACK_SIZE[ing.rarity]
   const isNew = !state.discovered.includes(id)
-  next = {
-    ...discover(next, id),
-    inventory: { ...next.inventory, [id]: next.inventory[id] + amount },
-    lastDraw: { id, amount, seq: (next.lastDraw?.seq ?? 0) + 1 },
+  const next: GameState = {
+    ...discover(state, id),
+    inventory: { ...state.inventory, [id]: state.inventory[id] + amount },
+    lastDraw: { id, amount, seq: (state.lastDraw?.seq ?? 0) + 1 },
   }
   const tag = ing.rarity === "legendary" ? "★傳說★ " : ing.rarity === "epic" ? "珍稀 " : ing.rarity === "rare" ? "特產 " : ""
   return addLog(next, "draw", `抽到 ${tag}[${ing.name}] ×${amount}${isNew ? "（圖鑑新登錄！）" : ""}`)
@@ -623,7 +637,7 @@ export function nextDay(state: GameState): GameState {
     next = addLog({ ...next, credits: next.credits - rent }, "rent", `繳了第 ${weekOf(state.day)} 週房租 ${rent} 信用點。`)
   }
   const free = storeLevel(next).freeDraws
-  next = withBest({ ...next, day: next.day + 1, phase: "prep", freeDrawsLeft: free })
+  next = withBest({ ...next, day: next.day + 1, phase: "prep", freeDrawsLeft: free, adDrawsLeft: GAME_RULES.adDrawsPerDay })
   const upcoming = rentDue(next)
   return addLog(
     next,
@@ -650,6 +664,7 @@ export function loadGame(raw: string | null, now: number): GameState {
       lastDraw: null,
       tables: DEFAULT_TABLES,
       level: 0,
+      adDrawsLeft: GAME_RULES.adDrawsPerDay,
       best: { days: 0, level: 0 },
       country: "taipei",
       sales: {},
