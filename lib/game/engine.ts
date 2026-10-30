@@ -42,6 +42,7 @@ export interface GameState {
   inventory: Inventory
   menu: DishId[]
   freeDrawsLeft: number
+  adDrawsLeft: number
   vendorSlot: number
   vendorBought: number[]
   pendingEvent: PendingEvent | null
@@ -82,6 +83,7 @@ export function newGame(now: number): GameState {
     inventory,
     menu: ["ramen", "battery"],
     freeDrawsLeft: GAME_RULES.freeDrawsPerDay,
+    adDrawsLeft: GAME_RULES.adDrawsPerDay,
     vendorSlot: vendorSlotAt(now),
     vendorBought: [],
     pendingEvent: null,
@@ -152,21 +154,33 @@ export function drawIngredient(rng: Rng): IngredientId {
 
 export function draw(state: GameState, rng: Rng): GameState {
   if (state.phase !== "prep") return state
-  let next = state
   if (state.freeDrawsLeft > 0) {
-    next = { ...next, freeDrawsLeft: next.freeDrawsLeft - 1 }
-  } else if (state.credits >= GAME_RULES.extraDrawCost) {
-    next = { ...next, credits: next.credits - GAME_RULES.extraDrawCost }
-  } else {
-    return addLog(state, "system", "信用點不足，無法加抽。")
+    return drawInto({ ...state, freeDrawsLeft: state.freeDrawsLeft - 1 }, rng)
   }
+  if (state.credits >= GAME_RULES.extraDrawCost) {
+    return drawInto({ ...state, credits: state.credits - GAME_RULES.extraDrawCost }, rng)
+  }
+  return addLog(state, "system", "信用點不足，無法加抽。")
+}
+
+// Reward for watching an ad: one free draw, a few times per day
+export function adDraw(state: GameState, rng: Rng): GameState {
+  if (state.phase !== "prep" || state.adDrawsLeft <= 0) return state
+  return drawInto({ ...state, adDrawsLeft: state.adDrawsLeft - 1 }, rng)
+}
+
+export function noteAdUnavailable(state: GameState): GameState {
+  return addLog(state, "system", "廣告沒有播完，這次沒有獎勵。")
+}
+
+function drawInto(state: GameState, rng: Rng): GameState {
   const id = drawIngredient(rng)
   const ing = INGREDIENTS[id]
   const amount = DRAW_PACK_SIZE[ing.rarity]
-  next = {
-    ...next,
-    inventory: { ...next.inventory, [id]: next.inventory[id] + amount },
-    lastDraw: { id, amount, seq: (next.lastDraw?.seq ?? 0) + 1 },
+  const next: GameState = {
+    ...state,
+    inventory: { ...state.inventory, [id]: state.inventory[id] + amount },
+    lastDraw: { id, amount, seq: (state.lastDraw?.seq ?? 0) + 1 },
   }
   const tag = ing.rarity === "legendary" ? "★傳說★ " : ing.rarity === "rare" ? "稀有 " : ""
   return addLog(next, "draw", `抽到 ${tag}[${ing.name}] ×${amount}`)
@@ -474,6 +488,7 @@ export function nextDay(state: GameState): GameState {
     day: state.day + 1,
     phase: "prep",
     freeDrawsLeft: GAME_RULES.freeDrawsPerDay,
+    adDrawsLeft: GAME_RULES.adDrawsPerDay,
   }
   return addLog(next, "system", `>> 第 ${next.day} 天。今天的 ${GAME_RULES.freeDrawsPerDay} 次免費抽取已補滿。`)
 }
@@ -487,7 +502,7 @@ export function loadGame(raw: string | null, now: number): GameState {
   try {
     const parsed = JSON.parse(raw) as Partial<GameState> & Pick<GameState, "version">
     if (parsed.version !== 1) return newGame(now)
-    let state = { lastDraw: null, tables: DEFAULT_TABLES, ...parsed, inventory: { ...emptyInventory(), ...parsed.inventory } } as GameState
+    let state = { lastDraw: null, tables: DEFAULT_TABLES, adDrawsLeft: GAME_RULES.adDrawsPerDay, ...parsed, inventory: { ...emptyInventory(), ...parsed.inventory } } as GameState
     // The page was closed mid-shift: the night is over
     if (state.phase === "serving") {
       state = addLog({ ...state, phase: "closed" }, "system", "營業中途離開，今晚提早打烊了。")

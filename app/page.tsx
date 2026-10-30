@@ -10,7 +10,8 @@ import { ActionPanel } from "@/components/game/action-panel"
 import { NightShift } from "@/components/game/night-shift"
 import { DrawReveal } from "@/components/game/draw-reveal"
 import { useGame } from "@/hooks/use-game"
-import { buyFromVendor, draw, nextDay, resolveEvent, startShift, toggleMenu } from "@/lib/game/engine"
+import { useRewardedAd } from "@/hooks/use-rewarded-ad"
+import { adDraw, buyFromVendor, draw, nextDay, noteAdUnavailable, resolveEvent, startShift, toggleMenu } from "@/lib/game/engine"
 
 type Tab = "floor" | "menu" | "vendor" | "log"
 
@@ -23,6 +24,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export default function GamePage() {
   const { state, now, act, reset } = useGame()
+  const ad = useRewardedAd()
   const [tab, setTab] = useState<Tab>("floor")
   const eventId = state?.pendingEvent?.id
 
@@ -95,7 +97,7 @@ export default function GamePage() {
           <div className="flex-1 min-h-0">
             {/* the restaurant stays mounted so a running shift keeps going while you look at other tabs */}
             <div className={tab === "floor" ? "h-full" : "hidden"}>
-              <NightShift state={state} act={act} />
+              <NightShift state={state} act={act} ad={ad} />
             </div>
             {tab === "log" && <NightLog state={state} onChoose={(c) => act((s) => resolveEvent(s, c, Math.random))} />}
             {tab === "menu" && <MenuBoard state={state} onToggle={(id) => act((s) => toggleMenu(s, id))} />}
@@ -107,6 +109,11 @@ export default function GamePage() {
           <ActionPanel
             state={state}
             onDraw={() => act((s) => draw(s, Math.random))}
+            adPlaying={ad.playing}
+            onAdDraw={async () => {
+              const rewarded = await ad.show()
+              act((s) => (rewarded ? adDraw(s, Math.random) : noteAdUnavailable(s)))
+            }}
             onOpen={() => {
               act(startShift)
               setTab("floor")
