@@ -1,4 +1,4 @@
-import { ChevronRight, Dices, Moon, RotateCcw, Sunrise } from "lucide-react"
+import { ChevronRight, Dices, Moon, RotateCcw, Sunrise, Tv } from "lucide-react"
 import { GAME_RULES } from "@/lib/game/data"
 import type { GameState } from "@/lib/game/engine"
 
@@ -43,12 +43,14 @@ function ActionButton({ icon, label, sublabel, variant, onClick, disabled }: Act
 interface Props {
   state: GameState
   onDraw: () => void
+  onAdDraw: () => void
+  adPlaying: boolean
   onOpen: () => void
   onNextDay: () => void
   onReset: () => void
 }
 
-export function ActionPanel({ state, onDraw, onOpen, onNextDay, onReset }: Props) {
+export function ActionPanel({ state, onDraw, onAdDraw, adPlaying, onOpen, onNextDay, onReset }: Props) {
   const prep = state.phase === "prep"
   const free = state.freeDrawsLeft > 0
   return (
@@ -69,6 +71,14 @@ export function ActionPanel({ state, onDraw, onOpen, onNextDay, onReset }: Props
           variant="primary"
           onClick={onDraw}
           disabled={!prep || (!free && state.credits < GAME_RULES.extraDrawCost)}
+        />
+        <ActionButton
+          icon={<Tv className="w-5 h-5" />}
+          label={adPlaying ? "廣告播放中…" : "看廣告免費加抽"}
+          sublabel={`今天還有 ${state.adDrawsLeft} / ${GAME_RULES.adDrawsPerDay} 次`}
+          variant="primary"
+          onClick={onAdDraw}
+          disabled={!prep || adPlaying || state.adDrawsLeft <= 0}
         />
       </div>
 

@@ -100,6 +100,7 @@ export const GAME_RULES = {
   startCredits: 200,
   freeDrawsPerDay: 5,
   extraDrawCost: 30,
+  adDrawsPerDay: 2,
   maxMenuSize: 4,
   lastDay: 7,
   goalCredits: 1800,
