@@ -398,7 +398,8 @@ export const GAME_RULES = {
 // Rent is due at the end of every GAME_RULES.rentEvery days. It climbs each week
 // and with the size of the place, so the run gets harder until you can't pay.
 export function rentFor(week: number, level: number): number {
-  return 200 + 150 * (week - 1) + 100 * (level - 1)
+  const w = week - 1
+  return 150 + 100 * w + 40 * w * w + 100 * (level - 1)
 }
 
 export interface StoreLevel {
@@ -417,8 +418,8 @@ export interface StoreLevel {
 
 export const STORE_LEVELS: StoreLevel[] = [
   { name: "夜市餐車", cost: 0, tables: 4, burners: 2, freeDraws: 5, menuSize: 4, crowd: 0, cookMs: 2000, perk: "" },
-  { name: "巷口小店", cost: 800, tables: 5, burners: 2, freeDraws: 6, menuSize: 4, crowd: 1, cookMs: 2000, perk: "+1 張桌子、每天 +1 次免費抽、可以去新曼谷和新東京擺攤" },
-  { name: "霓虹食堂", cost: 2000, tables: 5, burners: 3, freeDraws: 6, menuSize: 5, crowd: 2, cookMs: 2000, perk: "+1 個爐台、菜單 +1 道、客人變多、開放新首爾和新紐約" },
-  { name: "天橋餐廳", cost: 4500, tables: 6, burners: 3, freeDraws: 7, menuSize: 5, crowd: 3, cookMs: 1700, perk: "+1 張桌子、每天 +1 次免費抽、出菜更快、開放新巴黎" },
-  { name: "天空花園名店", cost: 9000, tables: 6, burners: 3, freeDraws: 8, menuSize: 6, crowd: 4, cookMs: 1400, perk: "菜單全開、每天 +1 次免費抽、出菜最快" },
+  { name: "巷口小店", cost: 600, tables: 5, burners: 2, freeDraws: 6, menuSize: 4, crowd: 1, cookMs: 2000, perk: "+1 張桌子、每天 +1 次免費抽、可以去新曼谷和新東京擺攤" },
+  { name: "霓虹食堂", cost: 1500, tables: 5, burners: 3, freeDraws: 6, menuSize: 5, crowd: 2, cookMs: 2000, perk: "+1 個爐台、菜單 +1 道、客人變多、開放新首爾和新紐約" },
+  { name: "天橋餐廳", cost: 3200, tables: 6, burners: 3, freeDraws: 7, menuSize: 5, crowd: 3, cookMs: 1700, perk: "+1 張桌子、每天 +1 次免費抽、出菜更快、開放新巴黎" },
+  { name: "天空花園名店", cost: 5000, tables: 6, burners: 3, freeDraws: 8, menuSize: 6, crowd: 4, cookMs: 1400, perk: "菜單全開、每天 +1 次免費抽、出菜最快" },
 ]
